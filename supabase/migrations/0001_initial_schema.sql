@@ -1,0 +1,6 @@
+-- Initial schema draft for IMB.
+-- Apply supabase/schema.sql during the first Supabase setup pass.
+--
+-- This placeholder keeps migration numbering stable while the schema is still
+-- being reviewed. Once Supabase CLI is added, replace this with a generated
+-- migration containing the finalized SQL.

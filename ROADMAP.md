@@ -11,7 +11,7 @@ Use it to answer:
 
 ## Current Status
 
-Current phase: `Foundation planning`
+Current phase: `Backend foundation`
 
 Overall progress:
 
@@ -19,8 +19,8 @@ Overall progress:
 - Database schema draft: done
 - API spec draft: done
 - Repo structure scaffold: done
-- Runtime app setup: not started
-- Backend implementation: not started
+- Runtime app setup: in progress
+- Backend implementation: in progress
 - Web app implementation: not started
 - Admin dashboard implementation: not started
 - Telegram bot integration: not started
@@ -55,11 +55,11 @@ Exit condition:
 - [x] Create initial database schema draft
 - [x] Create initial API specification
 - [x] Create base monorepo folder structure
-- [ ] Choose final backend framework
+- [x] Choose final backend framework
 - [ ] Choose final frontend framework/runtime details
 - [ ] Choose ad provider strategy
 - [ ] Choose external storage provider
-- [ ] Define environment variable strategy
+- [x] Define environment variable strategy
 
 Exit condition:
 
@@ -67,14 +67,14 @@ Exit condition:
 
 ## Phase 2: Backend Foundation
 
-- [ ] Set up backend app scaffold
-- [ ] Set up config and environment loading
-- [ ] Set up database connection
+- [x] Set up backend app scaffold
+- [x] Set up config and environment loading
+- [~] Set up database connection
 - [ ] Add migrations workflow
 - [ ] Add authentication foundation
-- [ ] Add error handling and response format
+- [x] Add error handling and response format
 - [ ] Add logging and audit helpers
-- [ ] Add health check endpoint
+- [x] Add health check endpoint
 
 Exit condition:
 
@@ -89,7 +89,7 @@ Exit condition:
 - [ ] Build genre management
 - [ ] Build content file management
 - [ ] Build publish/unpublish flow
-- [ ] Build search/filter endpoints
+- [~] Build search/filter endpoints
 
 Exit condition:
 
@@ -184,15 +184,15 @@ Exit condition:
 
 These are the best next tasks from where the repo is today:
 
-1. Choose the backend framework
-2. Scaffold the actual backend service
-3. Turn the SQL schema into migrations
-4. Implement the first public catalog endpoints
-5. Implement the download session model and Telegram handoff
+1. Turn the SQL schema into real Supabase migrations
+2. Implement the download session model and Telegram handoff
+3. Add admin authentication and permissions
+4. Wire remaining route groups to database repositories
+5. Scaffold the web app against the live catalog endpoints
 
 ## Open Decisions
 
-- [!] Backend framework: `FastAPI` or `NestJS`
+- [x] Backend framework: `FastAPI`
 - [!] Frontend app setup: `Next.js` or plain React/Vite
 - [!] External media storage provider
 - [!] Rewarded ad provider

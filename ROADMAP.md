@@ -21,10 +21,10 @@ Overall progress:
 - Repo structure scaffold: done
 - Runtime app setup: in progress
 - Backend implementation: in progress
-- Web app implementation: not started
+- Web app implementation: in progress
 - Admin dashboard implementation: not started
-- Telegram bot integration: not started
-- Ads and points implementation: not started
+- Telegram bot integration: in progress
+- Ads and points implementation: in progress
 - Android preparation docs: partial
 
 ## Progress Legend
@@ -70,8 +70,8 @@ Exit condition:
 - [x] Set up backend app scaffold
 - [x] Set up config and environment loading
 - [~] Set up database connection
-- [ ] Add migrations workflow
-- [ ] Add authentication foundation
+- [~] Add migrations workflow
+- [~] Add authentication foundation
 - [x] Add error handling and response format
 - [ ] Add logging and audit helpers
 - [x] Add health check endpoint
@@ -97,7 +97,7 @@ Exit condition:
 
 ## Phase 4: Public Web App
 
-- [ ] Set up web app scaffold
+- [~] Set up web app scaffold
 - [ ] Build homepage
 - [ ] Build browse/search pages
 - [ ] Build movie details page
@@ -114,12 +114,12 @@ Exit condition:
 ## Phase 5: Telegram Delivery
 
 - [ ] Create Telegram bot
-- [ ] Set up webhook handling
+- [~] Set up webhook handling
 - [ ] Implement Telegram account linking
-- [ ] Implement session-token deep links
-- [ ] Validate download sessions in bot flow
+- [~] Implement session-token deep links
+- [~] Validate download sessions in bot flow
 - [ ] Send delivery instructions or file access
-- [ ] Record Telegram delivery completion
+- [~] Record Telegram delivery completion
 
 Exit condition:
 
@@ -128,9 +128,9 @@ Exit condition:
 ## Phase 6: Ads and Rewards
 
 - [ ] Integrate rewarded ad provider
-- [ ] Implement ad event ingestion
-- [ ] Implement server-side verification
-- [ ] Award points on valid completion
+- [~] Implement ad event ingestion
+- [~] Implement server-side verification
+- [~] Award points on valid completion
 - [ ] Implement points spending for ad bypass
 - [ ] Add anti-abuse checks
 - [ ] Add user points history
@@ -157,7 +157,7 @@ Exit condition:
 ## Phase 8: Security and Hardening
 
 - [ ] Add Supabase RLS policies
-- [ ] Add permission enforcement for admin routes
+- [~] Add permission enforcement for admin routes
 - [ ] Add rate limiting
 - [ ] Add signed URL generation rules
 - [ ] Add abuse detection heuristics
@@ -184,11 +184,11 @@ Exit condition:
 
 These are the best next tasks from where the repo is today:
 
-1. Turn the SQL schema into real Supabase migrations
-2. Implement the download session model and Telegram handoff
-3. Add admin authentication and permissions
-4. Wire remaining route groups to database repositories
-5. Scaffold the web app against the live catalog endpoints
+1. Wire remaining route groups to database repositories
+2. Add a simple local seed/run workflow for Postgres or Supabase
+3. Start the admin dashboard scaffold against the live API
+4. Strengthen admin auth beyond shared-token bootstrap mode
+5. Expand the public web app into routed pages and real user auth
 
 ## Open Decisions
 

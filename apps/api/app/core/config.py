@@ -25,6 +25,7 @@ class Settings(BaseSettings):
 
     ad_callback_secret: str = Field(default="", repr=False)
     download_session_ttl_minutes: int = 15
+    admin_api_token: str = Field(default="", repr=False)
 
     @property
     def cors_origins(self) -> list[str]:

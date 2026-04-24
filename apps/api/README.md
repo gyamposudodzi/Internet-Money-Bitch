@@ -38,7 +38,23 @@ Useful URLs:
 
 ## Current State
 
-The catalog routes now use a repository layer and are ready to read from
-Postgres when `DATABASE_URL` is configured. The current focus is replacing the
-remaining placeholder route groups and adding real query-backed services for
-downloads, Telegram, rewards, and admin operations.
+The catalog, download-session, Telegram, and ad routes now use repository
+layers and are ready to read/write against Postgres when `DATABASE_URL` is
+configured. Admin routes now require a configured bearer token plus an
+admin user id header, backed by database role checks. The current focus is the
+remaining route groups and the first web client scaffold on top of these endpoints.
+
+## Admin Auth
+
+Set `ADMIN_API_TOKEN` in `.env`, then send:
+
+```text
+Authorization: Bearer <ADMIN_API_TOKEN>
+X-Admin-User-Id: <admin-user-uuid>
+```
+
+Starter admin endpoints:
+
+- `GET /api/v1/admin/auth/me`
+- `GET /api/v1/admin/analytics/overview`
+- `GET /api/v1/admin/users`

@@ -1,10 +1,29 @@
 # Admin App
 
-Planned internal dashboard for operations.
+Static admin console for the IMB backend.
 
-Suggested responsibilities:
+## Run Locally
 
-- Content publishing
-- File and quality assignment
-- Reward and user monitoring
-- Analytics and ad placement management
+From the repo root:
+
+```powershell
+python -m http.server 4174 -d apps/admin
+```
+
+Then open:
+
+- `http://localhost:4174`
+
+## Backend
+
+The app expects the API at:
+
+- `http://localhost:8000/api/v1`
+
+Admin requests use:
+
+- `Authorization: Bearer <ADMIN_API_TOKEN>`
+- `X-Admin-User-Id: <admin-user-uuid>`
+
+If the backend is unavailable, the dashboard falls back to seeded demo data so
+the interface stays reviewable.

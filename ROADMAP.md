@@ -22,7 +22,7 @@ Overall progress:
 - Runtime app setup: in progress
 - Backend implementation: in progress
 - Web app implementation: in progress
-- Admin dashboard implementation: not started
+- Admin dashboard implementation: in progress
 - Telegram bot integration: in progress
 - Ads and points implementation: in progress
 - Android preparation docs: partial
@@ -82,12 +82,12 @@ Exit condition:
 
 ## Phase 3: Catalog and Content Management
 
-- [ ] Build movie CRUD
+- [~] Build movie CRUD
 - [ ] Build series CRUD
 - [ ] Build seasons and episodes CRUD
-- [ ] Build audio CRUD
+- [~] Build audio CRUD
 - [ ] Build genre management
-- [ ] Build content file management
+- [~] Build content file management
 - [ ] Build publish/unpublish flow
 - [~] Build search/filter endpoints
 
@@ -141,12 +141,12 @@ Exit condition:
 
 ## Phase 7: Admin Dashboard
 
-- [ ] Set up admin app scaffold
-- [ ] Build content publishing UI
-- [ ] Build file/quality assignment UI
-- [ ] Build user monitoring tools
+- [~] Set up admin app scaffold
+- [~] Build content publishing UI
+- [~] Build file/quality assignment UI
+- [~] Build user monitoring tools
 - [ ] Build points adjustment tools
-- [ ] Build analytics overview
+- [~] Build analytics overview
 - [ ] Build ad slot and homepage section management
 - [ ] Build audit log view
 
@@ -186,9 +186,9 @@ These are the best next tasks from where the repo is today:
 
 1. Wire remaining route groups to database repositories
 2. Add a simple local seed/run workflow for Postgres or Supabase
-3. Start the admin dashboard scaffold against the live API
-4. Strengthen admin auth beyond shared-token bootstrap mode
-5. Expand the public web app into routed pages and real user auth
+3. Strengthen admin auth beyond shared-token bootstrap mode
+4. Expand the public web app into routed pages and real user auth
+5. Add update/delete publishing endpoints and hook them into the admin app
 
 ## Open Decisions
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,6 +101,274 @@ class AdminRepository:
             )
         )
         return [dict(row) for row in result.mappings().all()]
+
+    async def list_movies(self) -> list[dict]:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as id,
+                  title,
+                  slug,
+                  release_year,
+                  language,
+                  publication_status::text as publication_status,
+                  featured_rank
+                from public.movies
+                order by created_at desc
+                """
+            )
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    async def create_movie(self, payload: dict, actor_user_id: str) -> dict:
+        movie_id = str(uuid4())
+        await self.session.execute(
+            text(
+                """
+                insert into public.movies (
+                  id,
+                  title,
+                  slug,
+                  synopsis,
+                  poster_url,
+                  backdrop_url,
+                  release_year,
+                  duration_minutes,
+                  language,
+                  country,
+                  imdb_rating,
+                  publication_status,
+                  featured_rank,
+                  published_at,
+                  created_by
+                )
+                values (
+                  :id::uuid,
+                  :title,
+                  :slug,
+                  :synopsis,
+                  :poster_url,
+                  :backdrop_url,
+                  :release_year,
+                  :duration_minutes,
+                  :language,
+                  :country,
+                  :imdb_rating,
+                  :publication_status::public.publication_status,
+                  :featured_rank,
+                  case when :publication_status = 'published' then now() else null end,
+                  :created_by::uuid
+                )
+                """
+            ),
+            {
+                "id": movie_id,
+                "created_by": actor_user_id,
+                **payload,
+            },
+        )
+        await self.session.commit()
+        return {
+            "id": movie_id,
+            "title": payload["title"],
+            "slug": payload["slug"],
+            "release_year": payload.get("release_year"),
+            "language": payload.get("language"),
+            "publication_status": payload["publication_status"],
+            "featured_rank": payload.get("featured_rank"),
+        }
+
+    async def list_audio(self) -> list[dict]:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as id,
+                  title,
+                  slug,
+                  artist,
+                  album,
+                  language,
+                  publication_status::text as publication_status,
+                  featured_rank
+                from public.audio_items
+                order by created_at desc
+                """
+            )
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    async def create_audio(self, payload: dict, actor_user_id: str) -> dict:
+        audio_id = str(uuid4())
+        await self.session.execute(
+            text(
+                """
+                insert into public.audio_items (
+                  id,
+                  title,
+                  slug,
+                  artist,
+                  album,
+                  synopsis,
+                  cover_url,
+                  language,
+                  duration_seconds,
+                  publication_status,
+                  featured_rank,
+                  published_at,
+                  created_by
+                )
+                values (
+                  :id::uuid,
+                  :title,
+                  :slug,
+                  :artist,
+                  :album,
+                  :synopsis,
+                  :cover_url,
+                  :language,
+                  :duration_seconds,
+                  :publication_status::public.publication_status,
+                  :featured_rank,
+                  case when :publication_status = 'published' then now() else null end,
+                  :created_by::uuid
+                )
+                """
+            ),
+            {
+                "id": audio_id,
+                "created_by": actor_user_id,
+                **payload,
+            },
+        )
+        await self.session.commit()
+        return {
+            "id": audio_id,
+            "title": payload["title"],
+            "slug": payload["slug"],
+            "artist": payload.get("artist"),
+            "album": payload.get("album"),
+            "language": payload.get("language"),
+            "publication_status": payload["publication_status"],
+            "featured_rank": payload.get("featured_rank"),
+        }
+
+    async def list_content_files(self) -> list[dict]:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as id,
+                  content_kind::text as content_kind,
+                  content_id::text as content_id,
+                  label,
+                  quality,
+                  format,
+                  storage_provider::text as storage_provider,
+                  storage_key,
+                  delivery_mode::text as delivery_mode,
+                  requires_ad,
+                  points_cost,
+                  is_active
+                from public.content_files
+                order by created_at desc
+                """
+            )
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    async def create_content_file(self, payload: dict, actor_user_id: str) -> dict:
+        content_file_id = str(uuid4())
+        await self._assert_content_target_exists(payload["content_kind"], payload["content_id"])
+        await self.session.execute(
+            text(
+                """
+                insert into public.content_files (
+                  id,
+                  content_kind,
+                  content_id,
+                  label,
+                  quality,
+                  format,
+                  file_size_bytes,
+                  storage_provider,
+                  storage_bucket,
+                  storage_key,
+                  mime_type,
+                  delivery_mode,
+                  telegram_channel_id,
+                  telegram_message_id,
+                  requires_ad,
+                  points_cost,
+                  is_active,
+                  created_by
+                )
+                values (
+                  :id::uuid,
+                  :content_kind::public.content_kind,
+                  :content_id::uuid,
+                  :label,
+                  :quality,
+                  :format,
+                  :file_size_bytes,
+                  :storage_provider::public.storage_provider,
+                  :storage_bucket,
+                  :storage_key,
+                  :mime_type,
+                  :delivery_mode::public.delivery_mode,
+                  :telegram_channel_id,
+                  :telegram_message_id,
+                  :requires_ad,
+                  :points_cost,
+                  :is_active,
+                  :created_by::uuid
+                )
+                """
+            ),
+            {
+                "id": content_file_id,
+                "created_by": actor_user_id,
+                **payload,
+            },
+        )
+        await self.session.commit()
+        return {
+            "id": content_file_id,
+            "content_kind": payload["content_kind"],
+            "content_id": payload["content_id"],
+            "label": payload.get("label"),
+            "quality": payload.get("quality"),
+            "format": payload.get("format"),
+            "storage_provider": payload["storage_provider"],
+            "storage_key": payload["storage_key"],
+            "delivery_mode": payload["delivery_mode"],
+            "requires_ad": payload["requires_ad"],
+            "points_cost": payload["points_cost"],
+            "is_active": payload["is_active"],
+        }
+
+    async def _assert_content_target_exists(self, content_kind: str, content_id: str) -> None:
+        table_map = {
+            "movie": "public.movies",
+            "series": "public.series",
+            "episode": "public.episodes",
+            "audio": "public.audio_items",
+        }
+        target_table = table_map.get(content_kind)
+        if not target_table:
+            raise AppError(code="content_kind_invalid", message="Unsupported content kind.", status_code=400)
+
+        result = await self.session.execute(
+            text(f"select 1 from {target_table} where id = :content_id::uuid limit 1"),
+            {"content_id": content_id},
+        )
+        if result.first() is None:
+            raise AppError(
+                code="content_target_not_found",
+                message="The content item for this file was not found.",
+                status_code=404,
+            )
 
     @staticmethod
     def _has_any_admin_permission(identity: AdminIdentity) -> bool:

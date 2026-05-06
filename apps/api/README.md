@@ -58,3 +58,9 @@ Starter admin endpoints:
 - `GET /api/v1/admin/auth/me`
 - `GET /api/v1/admin/analytics/overview`
 - `GET /api/v1/admin/users`
+- `GET /api/v1/admin/movies`
+- `POST /api/v1/admin/movies`
+- `GET /api/v1/admin/audio`
+- `POST /api/v1/admin/audio`
+- `GET /api/v1/admin/content-files`
+- `POST /api/v1/admin/content-files`

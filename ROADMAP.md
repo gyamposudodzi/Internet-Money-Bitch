@@ -88,7 +88,7 @@ Exit condition:
 - [~] Build audio CRUD
 - [ ] Build genre management
 - [~] Build content file management
-- [ ] Build publish/unpublish flow
+- [~] Build publish/unpublish flow
 - [~] Build search/filter endpoints
 
 Exit condition:
@@ -188,7 +188,7 @@ These are the best next tasks from where the repo is today:
 2. Add a simple local seed/run workflow for Postgres or Supabase
 3. Strengthen admin auth beyond shared-token bootstrap mode
 4. Expand the public web app into routed pages and real user auth
-5. Add update/delete publishing endpoints and hook them into the admin app
+5. Add points adjustment, audit logs, and ad slot management to the admin app
 
 ## Open Decisions
 

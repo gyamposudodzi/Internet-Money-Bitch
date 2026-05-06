@@ -45,6 +45,21 @@ class AdminMovieCreateRequest(BaseModel):
     featured_rank: int | None = None
 
 
+class AdminMovieUpdateRequest(BaseModel):
+    title: str | None = None
+    slug: str | None = None
+    synopsis: str | None = None
+    poster_url: str | None = None
+    backdrop_url: str | None = None
+    release_year: int | None = None
+    duration_minutes: int | None = None
+    language: str | None = None
+    country: str | None = None
+    imdb_rating: float | None = None
+    publication_status: str | None = None
+    featured_rank: int | None = None
+
+
 class AdminAudioCreateRequest(BaseModel):
     title: str
     slug: str
@@ -55,6 +70,19 @@ class AdminAudioCreateRequest(BaseModel):
     language: str | None = None
     duration_seconds: int | None = None
     publication_status: str = "draft"
+    featured_rank: int | None = None
+
+
+class AdminAudioUpdateRequest(BaseModel):
+    title: str | None = None
+    slug: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    synopsis: str | None = None
+    cover_url: str | None = None
+    language: str | None = None
+    duration_seconds: int | None = None
+    publication_status: str | None = None
     featured_rank: int | None = None
 
 
@@ -75,6 +103,23 @@ class AdminContentFileCreateRequest(BaseModel):
     requires_ad: bool = True
     points_cost: int = 0
     is_active: bool = True
+
+
+class AdminContentFileUpdateRequest(BaseModel):
+    label: str | None = None
+    quality: str | None = None
+    format: str | None = None
+    file_size_bytes: int | None = None
+    storage_provider: str | None = None
+    storage_bucket: str | None = None
+    storage_key: str | None = None
+    mime_type: str | None = None
+    delivery_mode: str | None = None
+    telegram_channel_id: int | None = None
+    telegram_message_id: int | None = None
+    requires_ad: bool | None = None
+    points_cost: int | None = None
+    is_active: bool | None = None
 
 
 class AdminMovieSummary(BaseModel):

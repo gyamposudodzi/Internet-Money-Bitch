@@ -179,6 +179,50 @@ class AdminRepository:
             "featured_rank": payload.get("featured_rank"),
         }
 
+    async def update_movie(self, movie_id: str, payload: dict) -> dict:
+        existing = await self._fetch_movie(movie_id)
+        updated = {**existing, **{key: value for key, value in payload.items() if value is not None}}
+        await self.session.execute(
+            text(
+                """
+                update public.movies
+                set
+                  title = :title,
+                  slug = :slug,
+                  synopsis = :synopsis,
+                  poster_url = :poster_url,
+                  backdrop_url = :backdrop_url,
+                  release_year = :release_year,
+                  duration_minutes = :duration_minutes,
+                  language = :language,
+                  country = :country,
+                  imdb_rating = :imdb_rating,
+                  publication_status = :publication_status::public.publication_status,
+                  featured_rank = :featured_rank,
+                  published_at = case when :publication_status = 'published' then coalesce(published_at, now()) else published_at end,
+                  updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": movie_id, **updated},
+        )
+        await self.session.commit()
+        return await self._movie_summary(movie_id)
+
+    async def archive_movie(self, movie_id: str) -> dict:
+        await self.session.execute(
+            text(
+                """
+                update public.movies
+                set publication_status = 'archived', updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": movie_id},
+        )
+        await self.session.commit()
+        return await self._movie_summary(movie_id)
+
     async def list_audio(self) -> list[dict]:
         result = await self.session.execute(
             text(
@@ -253,6 +297,48 @@ class AdminRepository:
             "publication_status": payload["publication_status"],
             "featured_rank": payload.get("featured_rank"),
         }
+
+    async def update_audio(self, audio_id: str, payload: dict) -> dict:
+        existing = await self._fetch_audio(audio_id)
+        updated = {**existing, **{key: value for key, value in payload.items() if value is not None}}
+        await self.session.execute(
+            text(
+                """
+                update public.audio_items
+                set
+                  title = :title,
+                  slug = :slug,
+                  artist = :artist,
+                  album = :album,
+                  synopsis = :synopsis,
+                  cover_url = :cover_url,
+                  language = :language,
+                  duration_seconds = :duration_seconds,
+                  publication_status = :publication_status::public.publication_status,
+                  featured_rank = :featured_rank,
+                  published_at = case when :publication_status = 'published' then coalesce(published_at, now()) else published_at end,
+                  updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": audio_id, **updated},
+        )
+        await self.session.commit()
+        return await self._audio_summary(audio_id)
+
+    async def archive_audio(self, audio_id: str) -> dict:
+        await self.session.execute(
+            text(
+                """
+                update public.audio_items
+                set publication_status = 'archived', updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": audio_id},
+        )
+        await self.session.commit()
+        return await self._audio_summary(audio_id)
 
     async def list_content_files(self) -> list[dict]:
         result = await self.session.execute(
@@ -348,6 +434,51 @@ class AdminRepository:
             "is_active": payload["is_active"],
         }
 
+    async def update_content_file(self, content_file_id: str, payload: dict) -> dict:
+        existing = await self._fetch_content_file(content_file_id)
+        updated = {**existing, **{key: value for key, value in payload.items() if value is not None}}
+        await self.session.execute(
+            text(
+                """
+                update public.content_files
+                set
+                  label = :label,
+                  quality = :quality,
+                  format = :format,
+                  file_size_bytes = :file_size_bytes,
+                  storage_provider = :storage_provider::public.storage_provider,
+                  storage_bucket = :storage_bucket,
+                  storage_key = :storage_key,
+                  mime_type = :mime_type,
+                  delivery_mode = :delivery_mode::public.delivery_mode,
+                  telegram_channel_id = :telegram_channel_id,
+                  telegram_message_id = :telegram_message_id,
+                  requires_ad = :requires_ad,
+                  points_cost = :points_cost,
+                  is_active = :is_active,
+                  updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": content_file_id, **updated},
+        )
+        await self.session.commit()
+        return await self._content_file_summary(content_file_id)
+
+    async def deactivate_content_file(self, content_file_id: str) -> dict:
+        await self.session.execute(
+            text(
+                """
+                update public.content_files
+                set is_active = false, updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": content_file_id},
+        )
+        await self.session.commit()
+        return await self._content_file_summary(content_file_id)
+
     async def _assert_content_target_exists(self, content_kind: str, content_id: str) -> None:
         table_map = {
             "movie": "public.movies",
@@ -369,6 +500,171 @@ class AdminRepository:
                 message="The content item for this file was not found.",
                 status_code=404,
             )
+
+    async def _fetch_movie(self, movie_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  title,
+                  slug,
+                  synopsis,
+                  poster_url,
+                  backdrop_url,
+                  release_year,
+                  duration_minutes,
+                  language,
+                  country,
+                  imdb_rating,
+                  publication_status::text as publication_status,
+                  featured_rank
+                from public.movies
+                where id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": movie_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(code="movie_not_found", message="Movie not found.", status_code=404)
+        return dict(row)
+
+    async def _movie_summary(self, movie_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as id,
+                  title,
+                  slug,
+                  release_year,
+                  language,
+                  publication_status::text as publication_status,
+                  featured_rank
+                from public.movies
+                where id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": movie_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(code="movie_not_found", message="Movie not found.", status_code=404)
+        return dict(row)
+
+    async def _fetch_audio(self, audio_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  title,
+                  slug,
+                  artist,
+                  album,
+                  synopsis,
+                  cover_url,
+                  language,
+                  duration_seconds,
+                  publication_status::text as publication_status,
+                  featured_rank
+                from public.audio_items
+                where id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": audio_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(code="audio_not_found", message="Audio item not found.", status_code=404)
+        return dict(row)
+
+    async def _audio_summary(self, audio_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as id,
+                  title,
+                  slug,
+                  artist,
+                  album,
+                  language,
+                  publication_status::text as publication_status,
+                  featured_rank
+                from public.audio_items
+                where id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": audio_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(code="audio_not_found", message="Audio item not found.", status_code=404)
+        return dict(row)
+
+    async def _fetch_content_file(self, content_file_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  label,
+                  quality,
+                  format,
+                  file_size_bytes,
+                  storage_provider::text as storage_provider,
+                  storage_bucket,
+                  storage_key,
+                  mime_type,
+                  delivery_mode::text as delivery_mode,
+                  telegram_channel_id,
+                  telegram_message_id,
+                  requires_ad,
+                  points_cost,
+                  is_active
+                from public.content_files
+                where id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": content_file_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(code="content_file_not_found", message="Content file not found.", status_code=404)
+        return dict(row)
+
+    async def _content_file_summary(self, content_file_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as id,
+                  content_kind::text as content_kind,
+                  content_id::text as content_id,
+                  label,
+                  quality,
+                  format,
+                  storage_provider::text as storage_provider,
+                  storage_key,
+                  delivery_mode::text as delivery_mode,
+                  requires_ad,
+                  points_cost,
+                  is_active
+                from public.content_files
+                where id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": content_file_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(code="content_file_not_found", message="Content file not found.", status_code=404)
+        return dict(row)
 
     @staticmethod
     def _has_any_admin_permission(identity: AdminIdentity) -> bool:

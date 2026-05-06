@@ -8,11 +8,14 @@ from app.repositories.admin import AdminRepository
 from app.repositories.downloads import validate_uuid
 from app.schemas.admin import (
     AdminAudioCreateRequest,
+    AdminAudioUpdateRequest,
     AdminAudioSummary,
     AdminContentFileCreateRequest,
+    AdminContentFileUpdateRequest,
     AdminContentFileSummary,
     AdminIdentityResponse,
     AdminMovieCreateRequest,
+    AdminMovieUpdateRequest,
     AdminMovieSummary,
     AdminOverviewResponse,
     AdminUserSummary,
@@ -102,6 +105,32 @@ async def create_movie(
     return api_response(data=AdminMovieSummary.model_validate(movie))
 
 
+@router.patch("/movies/{movie_id}")
+async def update_movie(
+    movie_id: str,
+    payload: AdminMovieUpdateRequest,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    movie = await repository.update_movie(
+        validate_uuid(movie_id, field_name="movie_id"),
+        payload.model_dump(exclude_none=True),
+    )
+    return api_response(data=AdminMovieSummary.model_validate(movie))
+
+
+@router.delete("/movies/{movie_id}")
+async def archive_movie(
+    movie_id: str,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    movie = await repository.archive_movie(validate_uuid(movie_id, field_name="movie_id"))
+    return api_response(data=AdminMovieSummary.model_validate(movie))
+
+
 @router.get("/audio")
 async def list_audio(
     identity=Depends(get_current_admin_identity),
@@ -120,6 +149,32 @@ async def create_audio(
 ):
     ensure_can_manage_content(identity)
     audio = await repository.create_audio(payload.model_dump(), identity.user_id)
+    return api_response(data=AdminAudioSummary.model_validate(audio))
+
+
+@router.patch("/audio/{audio_id}")
+async def update_audio(
+    audio_id: str,
+    payload: AdminAudioUpdateRequest,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    audio = await repository.update_audio(
+        validate_uuid(audio_id, field_name="audio_id"),
+        payload.model_dump(exclude_none=True),
+    )
+    return api_response(data=AdminAudioSummary.model_validate(audio))
+
+
+@router.delete("/audio/{audio_id}")
+async def archive_audio(
+    audio_id: str,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    audio = await repository.archive_audio(validate_uuid(audio_id, field_name="audio_id"))
     return api_response(data=AdminAudioSummary.model_validate(audio))
 
 
@@ -143,4 +198,32 @@ async def create_content_file(
     content_payload = payload.model_dump()
     content_payload["content_id"] = validate_uuid(content_payload["content_id"], field_name="content_id")
     content_file = await repository.create_content_file(content_payload, identity.user_id)
+    return api_response(data=AdminContentFileSummary.model_validate(content_file))
+
+
+@router.patch("/content-files/{content_file_id}")
+async def update_content_file(
+    content_file_id: str,
+    payload: AdminContentFileUpdateRequest,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    content_file = await repository.update_content_file(
+        validate_uuid(content_file_id, field_name="content_file_id"),
+        payload.model_dump(exclude_none=True),
+    )
+    return api_response(data=AdminContentFileSummary.model_validate(content_file))
+
+
+@router.delete("/content-files/{content_file_id}")
+async def deactivate_content_file(
+    content_file_id: str,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    content_file = await repository.deactivate_content_file(
+        validate_uuid(content_file_id, field_name="content_file_id")
+    )
     return api_response(data=AdminContentFileSummary.model_validate(content_file))

@@ -99,10 +99,173 @@
                     <th>Year</th>
                     <th>Slug</th>
                     <th>State</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="inventoryTable"></tbody>
               </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Publishing</p>
+                <h2>Create content</h2>
+              </div>
+              <div class="panel-controls">
+                <button class="segment is-active" data-form-target="movieForm" type="button">
+                  Movie
+                </button>
+                <button class="segment" data-form-target="audioForm" type="button">
+                  Audio
+                </button>
+                <button class="segment" data-form-target="fileForm" type="button">
+                  Content file
+                </button>
+              </div>
+            </div>
+
+            <div class="forms-stack">
+              <form id="movieForm" class="editor-form is-active">
+                <div class="form-grid">
+                  <label class="field">
+                    <span>Title</span>
+                    <input name="title" type="text" required />
+                  </label>
+                  <label class="field">
+                    <span>Slug</span>
+                    <input name="slug" type="text" required />
+                  </label>
+                  <label class="field">
+                    <span>Year</span>
+                    <input name="release_year" type="number" min="1900" max="2100" />
+                  </label>
+                  <label class="field">
+                    <span>Language</span>
+                    <input name="language" type="text" placeholder="en" />
+                  </label>
+                  <label class="field">
+                    <span>Status</span>
+                    <select name="publication_status">
+                      <option value="draft">Draft</option>
+                      <option value="published">Published</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Duration</span>
+                    <input name="duration_minutes" type="number" min="1" />
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Synopsis</span>
+                  <textarea name="synopsis" rows="4"></textarea>
+                </label>
+                <div class="form-actions">
+                  <button class="primary-button" type="submit">Create movie</button>
+                </div>
+              </form>
+
+              <form id="audioForm" class="editor-form">
+                <div class="form-grid">
+                  <label class="field">
+                    <span>Title</span>
+                    <input name="title" type="text" required />
+                  </label>
+                  <label class="field">
+                    <span>Slug</span>
+                    <input name="slug" type="text" required />
+                  </label>
+                  <label class="field">
+                    <span>Artist</span>
+                    <input name="artist" type="text" />
+                  </label>
+                  <label class="field">
+                    <span>Album</span>
+                    <input name="album" type="text" />
+                  </label>
+                  <label class="field">
+                    <span>Language</span>
+                    <input name="language" type="text" placeholder="en" />
+                  </label>
+                  <label class="field">
+                    <span>Status</span>
+                    <select name="publication_status">
+                      <option value="draft">Draft</option>
+                      <option value="published">Published</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Synopsis</span>
+                  <textarea name="synopsis" rows="4"></textarea>
+                </label>
+                <div class="form-actions">
+                  <button class="primary-button" type="submit">Create audio</button>
+                </div>
+              </form>
+
+              <form id="fileForm" class="editor-form">
+                <div class="form-grid">
+                  <label class="field">
+                    <span>Content kind</span>
+                    <select name="content_kind">
+                      <option value="movie">Movie</option>
+                      <option value="audio">Audio</option>
+                      <option value="series">Series</option>
+                      <option value="episode">Episode</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Content UUID</span>
+                    <input name="content_id" type="text" required />
+                  </label>
+                  <label class="field">
+                    <span>Label</span>
+                    <input name="label" type="text" />
+                  </label>
+                  <label class="field">
+                    <span>Quality</span>
+                    <input name="quality" type="text" placeholder="1080p / 320kbps" />
+                  </label>
+                  <label class="field">
+                    <span>Format</span>
+                    <input name="format" type="text" placeholder="mp4 / mp3" />
+                  </label>
+                  <label class="field">
+                    <span>Storage provider</span>
+                    <select name="storage_provider">
+                      <option value="r2">r2</option>
+                      <option value="b2">b2</option>
+                      <option value="s3">s3</option>
+                      <option value="other">other</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Storage key</span>
+                    <input name="storage_key" type="text" required />
+                  </label>
+                  <label class="field">
+                    <span>Points cost</span>
+                    <input name="points_cost" type="number" min="0" value="0" />
+                  </label>
+                  <label class="field">
+                    <span>Delivery mode</span>
+                    <select name="delivery_mode">
+                      <option value="telegram_bot">telegram_bot</option>
+                      <option value="telegram_channel">telegram_channel</option>
+                      <option value="external_link">external_link</option>
+                    </select>
+                  </label>
+                  <label class="field toggle-field">
+                    <span>Requires ad</span>
+                    <input name="requires_ad" type="checkbox" checked />
+                  </label>
+                </div>
+                <div class="form-actions">
+                  <button class="primary-button" type="submit">Attach file</button>
+                </div>
+              </form>
             </div>
           </section>
         </section>
@@ -141,6 +304,30 @@
               <li>Reward adjustments and user moderation actions</li>
               <li>Audit log and ad-slot management views</li>
             </ul>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Delivery inventory</p>
+                <h2>Content files</h2>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Label</th>
+                    <th>Kind</th>
+                    <th>Quality</th>
+                    <th>Points</th>
+                    <th>State</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="contentFilesTable"></tbody>
+              </table>
+            </div>
           </section>
         </aside>
       </main>

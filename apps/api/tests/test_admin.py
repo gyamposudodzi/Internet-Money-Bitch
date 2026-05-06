@@ -76,6 +76,28 @@ class StubAdminRepository:
             "featured_rank": payload.get("featured_rank"),
         }
 
+    async def update_movie(self, movie_id: str, payload: dict):
+        return {
+            "id": movie_id,
+            "title": payload.get("title", "Heatline"),
+            "slug": payload.get("slug", "heatline"),
+            "release_year": payload.get("release_year", 2026),
+            "language": payload.get("language", "en"),
+            "publication_status": payload.get("publication_status", "draft"),
+            "featured_rank": payload.get("featured_rank"),
+        }
+
+    async def archive_movie(self, movie_id: str):
+        return {
+            "id": movie_id,
+            "title": "Heatline",
+            "slug": "heatline",
+            "release_year": 2026,
+            "language": "en",
+            "publication_status": "archived",
+            "featured_rank": 1,
+        }
+
     async def list_audio(self):
         return [
             {
@@ -100,6 +122,30 @@ class StubAdminRepository:
             "language": payload.get("language"),
             "publication_status": payload["publication_status"],
             "featured_rank": payload.get("featured_rank"),
+        }
+
+    async def update_audio(self, audio_id: str, payload: dict):
+        return {
+            "id": audio_id,
+            "title": payload.get("title", "Night Drive"),
+            "slug": payload.get("slug", "night-drive"),
+            "artist": payload.get("artist", "Sora Vale"),
+            "album": payload.get("album", "City Afterlight"),
+            "language": payload.get("language", "en"),
+            "publication_status": payload.get("publication_status", "draft"),
+            "featured_rank": payload.get("featured_rank"),
+        }
+
+    async def archive_audio(self, audio_id: str):
+        return {
+            "id": audio_id,
+            "title": "Night Drive",
+            "slug": "night-drive",
+            "artist": "Sora Vale",
+            "album": "City Afterlight",
+            "language": "en",
+            "publication_status": "archived",
+            "featured_rank": 1,
         }
 
     async def list_content_files(self):
@@ -134,6 +180,38 @@ class StubAdminRepository:
             "requires_ad": payload["requires_ad"],
             "points_cost": payload["points_cost"],
             "is_active": payload["is_active"],
+        }
+
+    async def update_content_file(self, content_file_id: str, payload: dict):
+        return {
+            "id": content_file_id,
+            "content_kind": "movie",
+            "content_id": "44444444-4444-4444-4444-444444444441",
+            "label": payload.get("label", "Heatline 720p"),
+            "quality": payload.get("quality", "720p"),
+            "format": payload.get("format", "mp4"),
+            "storage_provider": payload.get("storage_provider", "r2"),
+            "storage_key": payload.get("storage_key", "heatline/heatline-720p.mp4"),
+            "delivery_mode": payload.get("delivery_mode", "telegram_bot"),
+            "requires_ad": payload.get("requires_ad", True),
+            "points_cost": payload.get("points_cost", 10),
+            "is_active": payload.get("is_active", True),
+        }
+
+    async def deactivate_content_file(self, content_file_id: str):
+        return {
+            "id": content_file_id,
+            "content_kind": "movie",
+            "content_id": "44444444-4444-4444-4444-444444444441",
+            "label": "Heatline 720p",
+            "quality": "720p",
+            "format": "mp4",
+            "storage_provider": "r2",
+            "storage_key": "heatline/heatline-720p.mp4",
+            "delivery_mode": "telegram_bot",
+            "requires_ad": True,
+            "points_cost": 10,
+            "is_active": False,
         }
 
 
@@ -264,4 +342,50 @@ def test_admin_create_content_file(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["data"]["quality"] == "4K"
+    app.dependency_overrides.clear()
+
+
+def test_admin_update_movie(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/admin/movies/44444444-4444-4444-4444-444444444441",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+        json={"title": "Heatline Redux", "publication_status": "published"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["title"] == "Heatline Redux"
+    app.dependency_overrides.clear()
+
+
+def test_admin_archive_audio(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.delete(
+        "/api/v1/admin/audio/55555555-5555-5555-5555-555555555551",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["publication_status"] == "archived"
+    app.dependency_overrides.clear()
+
+
+def test_admin_deactivate_content_file(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.delete(
+        "/api/v1/admin/content-files/66666666-6666-6666-6666-666666666661",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["is_active"] is False
     app.dependency_overrides.clear()

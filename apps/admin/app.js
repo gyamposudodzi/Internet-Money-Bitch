@@ -15,6 +15,7 @@ const state = {
   overview: null,
   adminUsers: [],
   inventory: [],
+  contentFiles: [],
 };
 
 const fallbackData = {
@@ -62,6 +63,22 @@ const fallbackData = {
       state: "published",
     },
   ],
+  contentFiles: [
+    {
+      id: "66666666-6666-6666-6666-666666666662",
+      content_kind: "movie",
+      content_id: "44444444-4444-4444-4444-444444444441",
+      label: "Heatline 1080p",
+      quality: "1080p",
+      format: "mp4",
+      storage_key: "heatline/heatline-1080p.mp4",
+      points_cost: 15,
+      delivery_mode: "telegram_bot",
+      storage_provider: "r2",
+      requires_ad: true,
+      is_active: true,
+    },
+  ],
 };
 
 const el = {
@@ -79,6 +96,11 @@ const el = {
   inventorySearch: document.querySelector("#inventorySearch"),
   inventoryType: document.querySelector("#inventoryType"),
   inventoryTable: document.querySelector("#inventoryTable"),
+  contentFilesTable: document.querySelector("#contentFilesTable"),
+  formTabs: document.querySelectorAll("[data-form-target]"),
+  movieForm: document.querySelector("#movieForm"),
+  audioForm: document.querySelector("#audioForm"),
+  fileForm: document.querySelector("#fileForm"),
 };
 
 function syncInputs() {
@@ -230,37 +252,256 @@ function renderInventory() {
       <td>${item.release_year || "Audio"}</td>
       <td class="mono">${item.slug}</td>
       <td><span class="badge">${item.state || "published"}</span></td>
+      <td>
+        <div class="action-row">
+          <button class="mini-button" type="button" data-edit-type="${item.content_type}" data-edit-slug="${item.slug}">Edit</button>
+          <button class="mini-button is-danger" type="button" data-archive-type="${item.content_type}" data-archive-id="${item.id || ""}" data-archive-slug="${item.slug}">Archive</button>
+        </div>
+      </td>
     `;
     el.inventoryTable.appendChild(row);
   });
 }
 
+function renderContentFiles() {
+  const rows = state.contentFiles.length ? state.contentFiles : fallbackData.contentFiles;
+  el.contentFilesTable.innerHTML = "";
+
+  rows.forEach((item) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${item.label || "Untitled file"}</td>
+      <td><span class="badge is-muted">${item.content_kind}</span></td>
+      <td>${item.quality || item.format || "Standard"}</td>
+      <td>${item.points_cost}</td>
+      <td><span class="badge ${item.is_active === false ? "is-muted" : ""}">${item.is_active === false ? "inactive" : "active"}</span></td>
+      <td>
+        <div class="action-row">
+          <button class="mini-button" type="button" data-file-edit="${item.id}">Edit</button>
+          <button class="mini-button is-danger" type="button" data-file-deactivate="${item.id}">Disable</button>
+        </div>
+      </td>
+    `;
+    el.contentFilesTable.appendChild(row);
+  });
+}
+
 async function loadInventory() {
   try {
-    const [moviesResponse, audioResponse] = await Promise.all([
-      fetchJson("/movies"),
-      fetchJson("/audio"),
+    const [moviesResponse, audioResponse, filesResponse] = await Promise.all([
+      fetchJson("/admin/movies", {}, true),
+      fetchJson("/admin/audio", {}, true),
+      fetchJson("/admin/content-files", {}, true),
     ]);
 
     const movies = (moviesResponse.data || []).map((item) => ({
+      id: item.id,
       title: item.title,
       content_type: "movie",
       release_year: item.release_year,
       slug: item.slug,
-      state: "published",
+      language: item.language,
+      featured_rank: item.featured_rank,
+      state: item.publication_status,
     }));
     const audio = (audioResponse.data || []).map((item) => ({
+      id: item.id,
       title: item.title,
       content_type: "audio",
       release_year: item.release_year,
       slug: item.slug,
-      state: "published",
+      artist: item.artist,
+      album: item.album,
+      language: item.language,
+      featured_rank: item.featured_rank,
+      state: item.publication_status,
     }));
+    state.contentFiles = filesResponse.data || [];
 
     state.inventory = [...movies, ...audio];
   } catch (error) {
     console.warn("Inventory fallback engaged.", error);
     state.inventory = fallbackData.inventory;
+    state.contentFiles = fallbackData.contentFiles;
+  }
+}
+
+function slugify(value) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function activateForm(targetId) {
+  document.querySelectorAll(".editor-form").forEach((form) => {
+    form.classList.toggle("is-active", form.id === targetId);
+  });
+  el.formTabs.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.formTarget === targetId);
+  });
+}
+
+function fillForm(form, values) {
+  Object.entries(values).forEach(([key, value]) => {
+    const field = form.querySelector(`[name="${key}"]`);
+    if (!field) return;
+    if (field.type === "checkbox") {
+      field.checked = Boolean(value);
+    } else {
+      field.value = value ?? "";
+    }
+  });
+}
+
+function formDataToObject(form) {
+  const formData = new FormData(form);
+  const data = Object.fromEntries(formData.entries());
+
+  Object.keys(data).forEach((key) => {
+    if (data[key] === "") {
+      data[key] = null;
+    }
+  });
+
+  if ("release_year" in data && data.release_year) data.release_year = Number(data.release_year);
+  if ("duration_minutes" in data && data.duration_minutes) data.duration_minutes = Number(data.duration_minutes);
+  if ("duration_seconds" in data && data.duration_seconds) data.duration_seconds = Number(data.duration_seconds);
+  if ("points_cost" in data && data.points_cost !== null) data.points_cost = Number(data.points_cost);
+
+  data.requires_ad = form.querySelector('[name="requires_ad"]')
+    ? form.querySelector('[name="requires_ad"]').checked
+    : data.requires_ad;
+
+  return data;
+}
+
+async function submitMovieForm(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payload = formDataToObject(form);
+  payload.slug = payload.slug || slugify(payload.title || "");
+
+  try {
+    const method = form.dataset.editId ? "PATCH" : "POST";
+    const path = form.dataset.editId ? `/admin/movies/${form.dataset.editId}` : "/admin/movies";
+    await fetchJson(path, {
+      method,
+      body: JSON.stringify(payload),
+    }, true);
+    setMode("live", form.dataset.editId ? "Movie updated successfully." : "Movie created successfully.");
+    form.reset();
+    delete form.dataset.editId;
+    await loadDashboard();
+  } catch (error) {
+    setMode(state.fallback ? "fallback" : "live", `Movie save failed. ${error.message}`);
+  }
+}
+
+async function submitAudioForm(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payload = formDataToObject(form);
+  payload.slug = payload.slug || slugify(payload.title || "");
+
+  try {
+    const method = form.dataset.editId ? "PATCH" : "POST";
+    const path = form.dataset.editId ? `/admin/audio/${form.dataset.editId}` : "/admin/audio";
+    await fetchJson(path, {
+      method,
+      body: JSON.stringify(payload),
+    }, true);
+    setMode("live", form.dataset.editId ? "Audio item updated successfully." : "Audio item created successfully.");
+    form.reset();
+    delete form.dataset.editId;
+    await loadDashboard();
+  } catch (error) {
+    setMode(state.fallback ? "fallback" : "live", `Audio save failed. ${error.message}`);
+  }
+}
+
+async function submitContentFileForm(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payload = formDataToObject(form);
+
+  try {
+    const method = form.dataset.editId ? "PATCH" : "POST";
+    const path = form.dataset.editId ? `/admin/content-files/${form.dataset.editId}` : "/admin/content-files";
+    await fetchJson(path, {
+      method,
+      body: JSON.stringify(payload),
+    }, true);
+    setMode("live", form.dataset.editId ? "Content file updated successfully." : "Content file attached successfully.");
+    form.reset();
+    form.querySelector('[name="requires_ad"]').checked = true;
+    delete form.dataset.editId;
+    await loadDashboard();
+  } catch (error) {
+    setMode(state.fallback ? "fallback" : "live", `Content file save failed. ${error.message}`);
+  }
+}
+
+async function archiveInventoryItem(type, id) {
+  const path = type === "movie" ? `/admin/movies/${id}` : `/admin/audio/${id}`;
+  await fetchJson(path, { method: "DELETE" }, true);
+  setMode("live", `${type === "movie" ? "Movie" : "Audio"} archived.`);
+  await loadDashboard();
+}
+
+async function deactivateContentFile(id) {
+  await fetchJson(`/admin/content-files/${id}`, { method: "DELETE" }, true);
+  setMode("live", "Content file disabled.");
+  await loadDashboard();
+}
+
+function handleInventoryActions(event) {
+  const editButton = event.target.closest("[data-edit-type]");
+  const archiveButton = event.target.closest("[data-archive-type]");
+  const fileEditButton = event.target.closest("[data-file-edit]");
+  const fileDeactivateButton = event.target.closest("[data-file-deactivate]");
+
+  if (editButton) {
+    const item = state.inventory.find(
+      (row) => row.content_type === editButton.dataset.editType && row.slug === editButton.dataset.editSlug
+    );
+    if (!item) return;
+    if (item.content_type === "movie") {
+      activateForm("movieForm");
+      el.movieForm.dataset.editId = item.id;
+      fillForm(el.movieForm, item);
+    } else if (item.content_type === "audio") {
+      activateForm("audioForm");
+      el.audioForm.dataset.editId = item.id;
+      fillForm(el.audioForm, item);
+    }
+    return;
+  }
+
+  if (archiveButton) {
+    const id = archiveButton.dataset.archiveId;
+    const type = archiveButton.dataset.archiveType;
+    if (!id) return;
+    archiveInventoryItem(type, id).catch((error) => {
+      setMode(state.fallback ? "fallback" : "live", `Archive failed. ${error.message}`);
+    });
+    return;
+  }
+
+  if (fileEditButton) {
+    const file = state.contentFiles.find((row) => row.id === fileEditButton.dataset.fileEdit);
+    if (!file) return;
+    activateForm("fileForm");
+    el.fileForm.dataset.editId = file.id;
+    fillForm(el.fileForm, file);
+    return;
+  }
+
+  if (fileDeactivateButton) {
+    deactivateContentFile(fileDeactivateButton.dataset.fileDeactivate).catch((error) => {
+      setMode(state.fallback ? "fallback" : "live", `Disable failed. ${error.message}`);
+    });
   }
 }
 
@@ -295,6 +536,7 @@ async function loadDashboard() {
   renderIdentity();
   renderAdminUsers();
   renderInventory();
+  renderContentFiles();
 }
 
 function attachEvents() {
@@ -302,6 +544,14 @@ function attachEvents() {
   el.refreshButton.addEventListener("click", loadDashboard);
   el.inventorySearch.addEventListener("input", renderInventory);
   el.inventoryType.addEventListener("change", renderInventory);
+  el.inventoryTable.addEventListener("click", handleInventoryActions);
+  el.contentFilesTable.addEventListener("click", handleInventoryActions);
+  el.formTabs.forEach((button) => {
+    button.addEventListener("click", () => activateForm(button.dataset.formTarget));
+  });
+  el.movieForm.addEventListener("submit", submitMovieForm);
+  el.audioForm.addEventListener("submit", submitAudioForm);
+  el.fileForm.addEventListener("submit", submitContentFileForm);
 }
 
 syncInputs();

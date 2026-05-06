@@ -27,3 +27,13 @@ Admin requests use:
 
 If the backend is unavailable, the dashboard falls back to seeded demo data so
 the interface stays reviewable.
+
+## Current Capabilities
+
+- Connect with bootstrap admin auth
+- View admin identity and overview metrics
+- Review admin users
+- Browse protected movie/audio inventory
+- Create movies
+- Create audio items
+- Attach content files

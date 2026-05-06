@@ -60,7 +60,13 @@ Starter admin endpoints:
 - `GET /api/v1/admin/users`
 - `GET /api/v1/admin/movies`
 - `POST /api/v1/admin/movies`
+- `PATCH /api/v1/admin/movies/{movie_id}`
+- `DELETE /api/v1/admin/movies/{movie_id}`
 - `GET /api/v1/admin/audio`
 - `POST /api/v1/admin/audio`
+- `PATCH /api/v1/admin/audio/{audio_id}`
+- `DELETE /api/v1/admin/audio/{audio_id}`
 - `GET /api/v1/admin/content-files`
 - `POST /api/v1/admin/content-files`
+- `PATCH /api/v1/admin/content-files/{content_file_id}`
+- `DELETE /api/v1/admin/content-files/{content_file_id}`

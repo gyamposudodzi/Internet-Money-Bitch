@@ -11,11 +11,14 @@ const state = {
     localStorage.getItem(storageKeys.adminUserId) || "11111111-1111-1111-1111-111111111111",
   mode: "booting",
   fallback: false,
+  activeScreen: "overviewScreen",
   identity: null,
   overview: null,
   adminUsers: [],
+  platformUsers: [],
   inventory: [],
   contentFiles: [],
+  auditLogs: [],
 };
 
 const fallbackData = {
@@ -47,8 +50,20 @@ const fallbackData = {
       can_view_analytics: true,
     },
   ],
+  platformUsers: [
+    {
+      user_id: "22222222-2222-2222-2222-222222222222",
+      telegram_user_id: 900000002,
+      telegram_username: "moviefan",
+      role: "user",
+      points_balance: 14,
+      is_banned: false,
+      last_seen_at: "2026-05-06T10:00:00+00:00",
+    },
+  ],
   inventory: [
     {
+      id: "44444444-4444-4444-4444-444444444441",
       title: "Heatline",
       content_type: "movie",
       release_year: 2026,
@@ -56,6 +71,7 @@ const fallbackData = {
       state: "published",
     },
     {
+      id: "55555555-5555-5555-5555-555555555551",
       title: "Night Drive",
       content_type: "audio",
       release_year: null,
@@ -79,6 +95,17 @@ const fallbackData = {
       is_active: true,
     },
   ],
+  auditLogs: [
+    {
+      id: "dddd1111-1111-1111-1111-111111111111",
+      actor_user_id: "11111111-1111-1111-1111-111111111111",
+      action: "points.adjusted",
+      entity_type: "user",
+      entity_id: "22222222-2222-2222-2222-222222222222",
+      metadata: { amount: 5, reason: "manual bonus" },
+      created_at: "2026-05-06T10:05:00+00:00",
+    },
+  ],
 };
 
 const el = {
@@ -93,14 +120,20 @@ const el = {
   metricsGrid: document.querySelector("#metricsGrid"),
   identityCard: document.querySelector("#identityCard"),
   adminUsersList: document.querySelector("#adminUsersList"),
+  platformUsersTable: document.querySelector("#platformUsersTable"),
   inventorySearch: document.querySelector("#inventorySearch"),
   inventoryType: document.querySelector("#inventoryType"),
   inventoryTable: document.querySelector("#inventoryTable"),
   contentFilesTable: document.querySelector("#contentFilesTable"),
+  auditLogList: document.querySelector("#auditLogList"),
+  auditLogListMirror: document.querySelector("#auditLogListMirror"),
+  screenLinks: document.querySelectorAll(".sidebar-link"),
+  screens: document.querySelectorAll(".workspace-screen"),
   formTabs: document.querySelectorAll("[data-form-target]"),
   movieForm: document.querySelector("#movieForm"),
   audioForm: document.querySelector("#audioForm"),
   fileForm: document.querySelector("#fileForm"),
+  pointsAdjustmentForm: document.querySelector("#pointsAdjustmentForm"),
 };
 
 function syncInputs() {
@@ -113,6 +146,15 @@ function persistSettings() {
   localStorage.setItem(storageKeys.apiBaseUrl, state.apiBaseUrl);
   localStorage.setItem(storageKeys.adminToken, state.adminToken);
   localStorage.setItem(storageKeys.adminUserId, state.adminUserId);
+}
+
+function syncActiveScreen() {
+  el.screenLinks.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.screenTarget === state.activeScreen);
+  });
+  el.screens.forEach((screen) => {
+    screen.classList.toggle("is-active", screen.id === state.activeScreen);
+  });
 }
 
 async function fetchJson(path, options = {}, admin = false) {
@@ -186,6 +228,7 @@ function renderIdentity() {
   const identity = state.identity || fallbackData.identity;
   el.identityCard.innerHTML = `
     <div class="identity-panel">
+      <p class="eyebrow">Signed in</p>
       <h3>${identity.telegram_username || "Unknown admin"}</h3>
       <p class="mono">${identity.user_id}</p>
       <div class="badge-row">
@@ -220,6 +263,49 @@ function renderAdminUsers() {
   });
 }
 
+function renderPlatformUsers() {
+  const users = state.platformUsers.length ? state.platformUsers : fallbackData.platformUsers;
+  el.platformUsersTable.innerHTML = "";
+
+  users.forEach((user) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>
+        <strong>${user.telegram_username || "Unknown user"}</strong>
+        <div class="mono">${user.user_id}</div>
+      </td>
+      <td><span class="badge is-muted">${user.role}</span></td>
+      <td>${user.points_balance}</td>
+      <td><span class="badge ${user.is_banned ? "is-muted" : ""}">${user.is_banned ? "banned" : "active"}</span></td>
+      <td>
+        <div class="action-row">
+          <button class="mini-button" type="button" data-user-fill="${user.user_id}">Adjust points</button>
+          <button class="mini-button ${user.is_banned ? "" : "is-danger"}" type="button" data-user-ban="${user.user_id}" data-next-ban="${user.is_banned ? "false" : "true"}">${user.is_banned ? "Unban" : "Ban"}</button>
+        </div>
+      </td>
+    `;
+    el.platformUsersTable.appendChild(row);
+  });
+}
+
+function renderAuditLogs() {
+  const logs = state.auditLogs.length ? state.auditLogs : fallbackData.auditLogs;
+  const markup = logs
+    .map(
+      (log) => `
+        <article class="audit-row">
+          <h3>${log.action}</h3>
+          <p>${log.entity_type}${log.entity_id ? ` | ${log.entity_id}` : ""}</p>
+          <p class="mono">${log.actor_user_id || "system"} | ${new Date(log.created_at).toLocaleString()}</p>
+        </article>
+      `
+    )
+    .join("");
+
+  el.auditLogList.innerHTML = markup;
+  el.auditLogListMirror.innerHTML = markup;
+}
+
 function normalizedInventory() {
   const source = state.inventory.length ? state.inventory : fallbackData.inventory;
   const query = el.inventorySearch.value.trim().toLowerCase();
@@ -240,7 +326,7 @@ function renderInventory() {
   el.inventoryTable.innerHTML = "";
 
   if (!rows.length) {
-    el.inventoryTable.innerHTML = `<tr><td colspan="5" class="empty-state">No inventory matches that filter.</td></tr>`;
+    el.inventoryTable.innerHTML = `<tr><td colspan="6" class="empty-state">No inventory matches that filter.</td></tr>`;
     return;
   }
 
@@ -317,12 +403,26 @@ async function loadInventory() {
       state: item.publication_status,
     }));
     state.contentFiles = filesResponse.data || [];
-
     state.inventory = [...movies, ...audio];
   } catch (error) {
     console.warn("Inventory fallback engaged.", error);
     state.inventory = fallbackData.inventory;
     state.contentFiles = fallbackData.contentFiles;
+  }
+}
+
+async function loadOperationsData() {
+  try {
+    const [platformUsersResponse, auditLogsResponse] = await Promise.all([
+      fetchJson("/admin/platform-users", {}, true),
+      fetchJson("/admin/audit-logs", {}, true),
+    ]);
+    state.platformUsers = platformUsersResponse.data || [];
+    state.auditLogs = auditLogsResponse.data || [];
+  } catch (error) {
+    console.warn("Operations fallback engaged.", error);
+    state.platformUsers = fallbackData.platformUsers;
+    state.auditLogs = fallbackData.auditLogs;
   }
 }
 
@@ -336,7 +436,8 @@ function slugify(value) {
 
 function activateForm(targetId) {
   document.querySelectorAll(".editor-form").forEach((form) => {
-    form.classList.toggle("is-active", form.id === targetId);
+    const isPointsForm = form.id === "pointsAdjustmentForm";
+    form.classList.toggle("is-active", isPointsForm || form.id === targetId);
   });
   el.formTabs.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.formTarget === targetId);
@@ -360,15 +461,14 @@ function formDataToObject(form) {
   const data = Object.fromEntries(formData.entries());
 
   Object.keys(data).forEach((key) => {
-    if (data[key] === "") {
-      data[key] = null;
-    }
+    if (data[key] === "") data[key] = null;
   });
 
   if ("release_year" in data && data.release_year) data.release_year = Number(data.release_year);
   if ("duration_minutes" in data && data.duration_minutes) data.duration_minutes = Number(data.duration_minutes);
   if ("duration_seconds" in data && data.duration_seconds) data.duration_seconds = Number(data.duration_seconds);
   if ("points_cost" in data && data.points_cost !== null) data.points_cost = Number(data.points_cost);
+  if ("amount" in data && data.amount !== null) data.amount = Number(data.amount);
 
   data.requires_ad = form.querySelector('[name="requires_ad"]')
     ? form.querySelector('[name="requires_ad"]').checked
@@ -386,10 +486,7 @@ async function submitMovieForm(event) {
   try {
     const method = form.dataset.editId ? "PATCH" : "POST";
     const path = form.dataset.editId ? `/admin/movies/${form.dataset.editId}` : "/admin/movies";
-    await fetchJson(path, {
-      method,
-      body: JSON.stringify(payload),
-    }, true);
+    await fetchJson(path, { method, body: JSON.stringify(payload) }, true);
     setMode("live", form.dataset.editId ? "Movie updated successfully." : "Movie created successfully.");
     form.reset();
     delete form.dataset.editId;
@@ -408,10 +505,7 @@ async function submitAudioForm(event) {
   try {
     const method = form.dataset.editId ? "PATCH" : "POST";
     const path = form.dataset.editId ? `/admin/audio/${form.dataset.editId}` : "/admin/audio";
-    await fetchJson(path, {
-      method,
-      body: JSON.stringify(payload),
-    }, true);
+    await fetchJson(path, { method, body: JSON.stringify(payload) }, true);
     setMode("live", form.dataset.editId ? "Audio item updated successfully." : "Audio item created successfully.");
     form.reset();
     delete form.dataset.editId;
@@ -429,10 +523,7 @@ async function submitContentFileForm(event) {
   try {
     const method = form.dataset.editId ? "PATCH" : "POST";
     const path = form.dataset.editId ? `/admin/content-files/${form.dataset.editId}` : "/admin/content-files";
-    await fetchJson(path, {
-      method,
-      body: JSON.stringify(payload),
-    }, true);
+    await fetchJson(path, { method, body: JSON.stringify(payload) }, true);
     setMode("live", form.dataset.editId ? "Content file updated successfully." : "Content file attached successfully.");
     form.reset();
     form.querySelector('[name="requires_ad"]').checked = true;
@@ -456,17 +547,52 @@ async function deactivateContentFile(id) {
   await loadDashboard();
 }
 
+async function updatePlatformUserBanState(userId, isBanned) {
+  await fetchJson(
+    `/admin/platform-users/${userId}`,
+    { method: "PATCH", body: JSON.stringify({ is_banned: isBanned }) },
+    true
+  );
+  setMode("live", isBanned ? "User banned." : "User unbanned.");
+  await loadDashboard();
+}
+
+async function submitPointsAdjustmentForm(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const payload = formDataToObject(form);
+  const userId = payload.user_id;
+  delete payload.user_id;
+
+  try {
+    await fetchJson(
+      `/admin/platform-users/${userId}/points-adjustments`,
+      { method: "POST", body: JSON.stringify(payload) },
+      true
+    );
+    setMode("live", "Point adjustment applied.");
+    form.reset();
+    await loadDashboard();
+  } catch (error) {
+    setMode(state.fallback ? "fallback" : "live", `Point adjustment failed. ${error.message}`);
+  }
+}
+
 function handleInventoryActions(event) {
   const editButton = event.target.closest("[data-edit-type]");
   const archiveButton = event.target.closest("[data-archive-type]");
   const fileEditButton = event.target.closest("[data-file-edit]");
   const fileDeactivateButton = event.target.closest("[data-file-deactivate]");
+  const fillUserButton = event.target.closest("[data-user-fill]");
+  const banUserButton = event.target.closest("[data-user-ban]");
 
   if (editButton) {
     const item = state.inventory.find(
       (row) => row.content_type === editButton.dataset.editType && row.slug === editButton.dataset.editSlug
     );
     if (!item) return;
+    state.activeScreen = "publishingScreen";
+    syncActiveScreen();
     if (item.content_type === "movie") {
       activateForm("movieForm");
       el.movieForm.dataset.editId = item.id;
@@ -492,6 +618,8 @@ function handleInventoryActions(event) {
   if (fileEditButton) {
     const file = state.contentFiles.find((row) => row.id === fileEditButton.dataset.fileEdit);
     if (!file) return;
+    state.activeScreen = "publishingScreen";
+    syncActiveScreen();
     activateForm("fileForm");
     el.fileForm.dataset.editId = file.id;
     fillForm(el.fileForm, file);
@@ -501,6 +629,23 @@ function handleInventoryActions(event) {
   if (fileDeactivateButton) {
     deactivateContentFile(fileDeactivateButton.dataset.fileDeactivate).catch((error) => {
       setMode(state.fallback ? "fallback" : "live", `Disable failed. ${error.message}`);
+    });
+    return;
+  }
+
+  if (fillUserButton) {
+    state.activeScreen = "usersScreen";
+    syncActiveScreen();
+    el.pointsAdjustmentForm.querySelector('[name="user_id"]').value = fillUserButton.dataset.userFill;
+    return;
+  }
+
+  if (banUserButton) {
+    updatePlatformUserBanState(
+      banUserButton.dataset.userBan,
+      banUserButton.dataset.nextBan === "true"
+    ).catch((error) => {
+      setMode(state.fallback ? "fallback" : "live", `User update failed. ${error.message}`);
     });
   }
 }
@@ -532,11 +677,15 @@ async function loadDashboard() {
   }
 
   await loadInventory();
+  await loadOperationsData();
   renderMetrics();
   renderIdentity();
   renderAdminUsers();
+  renderPlatformUsers();
   renderInventory();
   renderContentFiles();
+  renderAuditLogs();
+  syncActiveScreen();
 }
 
 function attachEvents() {
@@ -546,14 +695,23 @@ function attachEvents() {
   el.inventoryType.addEventListener("change", renderInventory);
   el.inventoryTable.addEventListener("click", handleInventoryActions);
   el.contentFilesTable.addEventListener("click", handleInventoryActions);
+  el.platformUsersTable.addEventListener("click", handleInventoryActions);
+  el.screenLinks.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeScreen = button.dataset.screenTarget;
+      syncActiveScreen();
+    });
+  });
   el.formTabs.forEach((button) => {
     button.addEventListener("click", () => activateForm(button.dataset.formTarget));
   });
   el.movieForm.addEventListener("submit", submitMovieForm);
   el.audioForm.addEventListener("submit", submitAudioForm);
   el.fileForm.addEventListener("submit", submitContentFileForm);
+  el.pointsAdjustmentForm.addEventListener("submit", submitPointsAdjustmentForm);
 }
 
 syncInputs();
 attachEvents();
+syncActiveScreen();
 loadDashboard();

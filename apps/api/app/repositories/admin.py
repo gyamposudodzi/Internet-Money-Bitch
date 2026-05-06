@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -102,6 +103,154 @@ class AdminRepository:
         )
         return [dict(row) for row in result.mappings().all()]
 
+    async def list_platform_users(self) -> list[dict]:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as user_id,
+                  telegram_user_id,
+                  telegram_username,
+                  role::text as role,
+                  points_balance,
+                  is_banned,
+                  last_seen_at::text as last_seen_at
+                from public.users
+                order by created_at desc
+                """
+            )
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    async def update_platform_user(self, user_id: str, payload: dict, actor_user_id: str) -> dict:
+        user = await self._fetch_platform_user(user_id)
+        updated = {**user, **payload}
+        await self.session.execute(
+            text(
+                """
+                update public.users
+                set
+                  is_banned = :is_banned,
+                  updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": user_id, "is_banned": updated["is_banned"]},
+        )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="user.updated",
+            entity_type="user",
+            entity_id=user_id,
+            metadata={
+                "changes": {
+                    "is_banned": updated["is_banned"],
+                }
+            },
+        )
+        await self.session.commit()
+        return await self._platform_user_summary(user_id)
+
+    async def adjust_user_points(self, user_id: str, payload: dict, actor_user_id: str) -> dict:
+        user = await self._fetch_platform_user(user_id)
+        balance_before = int(user["points_balance"])
+        amount = int(payload["amount"])
+        balance_after = balance_before + amount
+        if balance_after < 0:
+            raise AppError(
+                code="points_balance_invalid",
+                message="This adjustment would drop the user below zero points.",
+                status_code=400,
+            )
+
+        await self.session.execute(
+            text(
+                """
+                update public.users
+                set
+                  points_balance = :points_balance,
+                  updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": user_id, "points_balance": balance_after},
+        )
+        await self.session.execute(
+            text(
+                """
+                insert into public.point_transactions (
+                  id,
+                  user_id,
+                  transaction_type,
+                  amount,
+                  balance_after,
+                  source,
+                  metadata,
+                  created_by
+                )
+                values (
+                  :id::uuid,
+                  :user_id::uuid,
+                  'adjustment'::public.point_tx_type,
+                  :amount,
+                  :balance_after,
+                  'admin_adjustment',
+                  :metadata::jsonb,
+                  :created_by::uuid
+                )
+                """
+            ),
+            {
+                "id": str(uuid4()),
+                "user_id": user_id,
+                "amount": amount,
+                "balance_after": balance_after,
+                "metadata": json.dumps({"reason": payload["reason"]}),
+                "created_by": actor_user_id,
+            },
+        )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="points.adjusted",
+            entity_type="user",
+            entity_id=user_id,
+            metadata={
+                "amount": amount,
+                "balance_before": balance_before,
+                "balance_after": balance_after,
+                "reason": payload["reason"],
+            },
+        )
+        await self.session.commit()
+        return {
+            "user": await self._platform_user_summary(user_id),
+            "balance_before": balance_before,
+            "balance_after": balance_after,
+            "amount": amount,
+            "reason": payload["reason"],
+        }
+
+    async def list_audit_logs(self, limit: int = 100) -> list[dict]:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as id,
+                  actor_user_id::text as actor_user_id,
+                  action,
+                  entity_type,
+                  entity_id::text as entity_id,
+                  metadata,
+                  created_at::text as created_at
+                from public.audit_logs
+                order by created_at desc
+                limit :limit
+                """
+            ),
+            {"limit": limit},
+        )
+        return [dict(row) for row in result.mappings().all()]
+
     async def list_movies(self) -> list[dict]:
         result = await self.session.execute(
             text(
@@ -168,6 +317,13 @@ class AdminRepository:
                 **payload,
             },
         )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="movie.created",
+            entity_type="movie",
+            entity_id=movie_id,
+            metadata={"slug": payload["slug"], "title": payload["title"]},
+        )
         await self.session.commit()
         return {
             "id": movie_id,
@@ -179,7 +335,7 @@ class AdminRepository:
             "featured_rank": payload.get("featured_rank"),
         }
 
-    async def update_movie(self, movie_id: str, payload: dict) -> dict:
+    async def update_movie(self, movie_id: str, payload: dict, actor_user_id: str | None = None) -> dict:
         existing = await self._fetch_movie(movie_id)
         updated = {**existing, **{key: value for key, value in payload.items() if value is not None}}
         await self.session.execute(
@@ -206,10 +362,17 @@ class AdminRepository:
             ),
             {"id": movie_id, **updated},
         )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="movie.updated",
+            entity_type="movie",
+            entity_id=movie_id,
+            metadata={"changes": payload},
+        )
         await self.session.commit()
         return await self._movie_summary(movie_id)
 
-    async def archive_movie(self, movie_id: str) -> dict:
+    async def archive_movie(self, movie_id: str, actor_user_id: str | None = None) -> dict:
         await self.session.execute(
             text(
                 """
@@ -219,6 +382,13 @@ class AdminRepository:
                 """
             ),
             {"id": movie_id},
+        )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="movie.archived",
+            entity_type="movie",
+            entity_id=movie_id,
+            metadata={},
         )
         await self.session.commit()
         return await self._movie_summary(movie_id)
@@ -286,6 +456,13 @@ class AdminRepository:
                 **payload,
             },
         )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="audio.created",
+            entity_type="audio",
+            entity_id=audio_id,
+            metadata={"slug": payload["slug"], "title": payload["title"]},
+        )
         await self.session.commit()
         return {
             "id": audio_id,
@@ -298,7 +475,7 @@ class AdminRepository:
             "featured_rank": payload.get("featured_rank"),
         }
 
-    async def update_audio(self, audio_id: str, payload: dict) -> dict:
+    async def update_audio(self, audio_id: str, payload: dict, actor_user_id: str | None = None) -> dict:
         existing = await self._fetch_audio(audio_id)
         updated = {**existing, **{key: value for key, value in payload.items() if value is not None}}
         await self.session.execute(
@@ -323,10 +500,17 @@ class AdminRepository:
             ),
             {"id": audio_id, **updated},
         )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="audio.updated",
+            entity_type="audio",
+            entity_id=audio_id,
+            metadata={"changes": payload},
+        )
         await self.session.commit()
         return await self._audio_summary(audio_id)
 
-    async def archive_audio(self, audio_id: str) -> dict:
+    async def archive_audio(self, audio_id: str, actor_user_id: str | None = None) -> dict:
         await self.session.execute(
             text(
                 """
@@ -336,6 +520,13 @@ class AdminRepository:
                 """
             ),
             {"id": audio_id},
+        )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="audio.archived",
+            entity_type="audio",
+            entity_id=audio_id,
+            metadata={},
         )
         await self.session.commit()
         return await self._audio_summary(audio_id)
@@ -418,6 +609,17 @@ class AdminRepository:
                 **payload,
             },
         )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="content_file.created",
+            entity_type="content_file",
+            entity_id=content_file_id,
+            metadata={
+                "content_kind": payload["content_kind"],
+                "content_id": payload["content_id"],
+                "storage_key": payload["storage_key"],
+            },
+        )
         await self.session.commit()
         return {
             "id": content_file_id,
@@ -434,7 +636,9 @@ class AdminRepository:
             "is_active": payload["is_active"],
         }
 
-    async def update_content_file(self, content_file_id: str, payload: dict) -> dict:
+    async def update_content_file(
+        self, content_file_id: str, payload: dict, actor_user_id: str | None = None
+    ) -> dict:
         existing = await self._fetch_content_file(content_file_id)
         updated = {**existing, **{key: value for key, value in payload.items() if value is not None}}
         await self.session.execute(
@@ -462,10 +666,17 @@ class AdminRepository:
             ),
             {"id": content_file_id, **updated},
         )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="content_file.updated",
+            entity_type="content_file",
+            entity_id=content_file_id,
+            metadata={"changes": payload},
+        )
         await self.session.commit()
         return await self._content_file_summary(content_file_id)
 
-    async def deactivate_content_file(self, content_file_id: str) -> dict:
+    async def deactivate_content_file(self, content_file_id: str, actor_user_id: str | None = None) -> dict:
         await self.session.execute(
             text(
                 """
@@ -475,6 +686,13 @@ class AdminRepository:
                 """
             ),
             {"id": content_file_id},
+        )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="content_file.deactivated",
+            entity_type="content_file",
+            entity_id=content_file_id,
+            metadata={},
         )
         await self.session.commit()
         return await self._content_file_summary(content_file_id)
@@ -665,6 +883,72 @@ class AdminRepository:
         if not row:
             raise AppError(code="content_file_not_found", message="Content file not found.", status_code=404)
         return dict(row)
+
+    async def _fetch_platform_user(self, user_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as user_id,
+                  telegram_user_id,
+                  telegram_username,
+                  role::text as role,
+                  points_balance,
+                  is_banned,
+                  last_seen_at::text as last_seen_at
+                from public.users
+                where id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": user_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(code="user_not_found", message="User not found.", status_code=404)
+        return dict(row)
+
+    async def _platform_user_summary(self, user_id: str) -> dict:
+        return await self._fetch_platform_user(user_id)
+
+    async def _insert_audit_log(
+        self,
+        actor_user_id: str | None,
+        action: str,
+        entity_type: str,
+        entity_id: str | None,
+        metadata: dict,
+    ) -> None:
+        await self.session.execute(
+            text(
+                """
+                insert into public.audit_logs (
+                  id,
+                  actor_user_id,
+                  action,
+                  entity_type,
+                  entity_id,
+                  metadata
+                )
+                values (
+                  :id::uuid,
+                  :actor_user_id::uuid,
+                  :action,
+                  :entity_type,
+                  :entity_id::uuid,
+                  :metadata::jsonb
+                )
+                """
+            ),
+            {
+                "id": str(uuid4()),
+                "actor_user_id": actor_user_id,
+                "action": action,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "metadata": json.dumps(metadata),
+            },
+        )
 
     @staticmethod
     def _has_any_admin_permission(identity: AdminIdentity) -> bool:

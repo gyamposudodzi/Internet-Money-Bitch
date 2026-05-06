@@ -10,6 +10,7 @@ from app.schemas.admin import (
     AdminAudioCreateRequest,
     AdminAudioUpdateRequest,
     AdminAudioSummary,
+    AdminAuditLogSummary,
     AdminContentFileCreateRequest,
     AdminContentFileUpdateRequest,
     AdminContentFileSummary,
@@ -18,6 +19,10 @@ from app.schemas.admin import (
     AdminMovieUpdateRequest,
     AdminMovieSummary,
     AdminOverviewResponse,
+    AdminPlatformUserSummary,
+    AdminPointAdjustmentRequest,
+    AdminPointAdjustmentResponse,
+    AdminUserModerationRequest,
     AdminUserSummary,
 )
 from app.schemas.responses import api_response
@@ -64,15 +69,85 @@ async def list_admin_users(
     repository: AdminRepository = Depends(get_admin_repository),
 ):
     if not identity.can_manage_users:
-        from app.core.errors import AppError
-
         raise AppError(
             code="admin_permission_denied",
             message="This admin cannot manage users.",
             status_code=403,
-    )
+        )
     admins = await repository.list_admin_users()
     return api_response(data=[AdminUserSummary.model_validate(row) for row in admins])
+
+
+@router.get("/platform-users")
+async def list_platform_users(
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    if not identity.can_manage_users:
+        raise AppError(
+            code="admin_permission_denied",
+            message="This admin cannot manage users.",
+            status_code=403,
+        )
+    users = await repository.list_platform_users()
+    return api_response(data=[AdminPlatformUserSummary.model_validate(row) for row in users])
+
+
+@router.patch("/platform-users/{user_id}")
+async def moderate_platform_user(
+    user_id: str,
+    payload: AdminUserModerationRequest,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    if not identity.can_manage_users:
+        raise AppError(
+            code="admin_permission_denied",
+            message="This admin cannot manage users.",
+            status_code=403,
+        )
+    user = await repository.update_platform_user(
+        validate_uuid(user_id, field_name="user_id"),
+        payload.model_dump(),
+        identity.user_id,
+    )
+    return api_response(data=AdminPlatformUserSummary.model_validate(user))
+
+
+@router.post("/platform-users/{user_id}/points-adjustments")
+async def adjust_platform_user_points(
+    user_id: str,
+    payload: AdminPointAdjustmentRequest,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    if not identity.can_manage_rewards:
+        raise AppError(
+            code="admin_permission_denied",
+            message="This admin cannot manage rewards.",
+            status_code=403,
+        )
+    adjustment = await repository.adjust_user_points(
+        validate_uuid(user_id, field_name="user_id"),
+        payload.model_dump(),
+        identity.user_id,
+    )
+    return api_response(data=AdminPointAdjustmentResponse.model_validate(adjustment))
+
+
+@router.get("/audit-logs")
+async def list_audit_logs(
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    if not identity.can_view_analytics:
+        raise AppError(
+            code="admin_permission_denied",
+            message="This admin cannot view audit logs.",
+            status_code=403,
+        )
+    logs = await repository.list_audit_logs()
+    return api_response(data=[AdminAuditLogSummary.model_validate(row) for row in logs])
 
 
 def ensure_can_manage_content(identity) -> None:
@@ -116,6 +191,7 @@ async def update_movie(
     movie = await repository.update_movie(
         validate_uuid(movie_id, field_name="movie_id"),
         payload.model_dump(exclude_none=True),
+        identity.user_id,
     )
     return api_response(data=AdminMovieSummary.model_validate(movie))
 
@@ -127,7 +203,7 @@ async def archive_movie(
     repository: AdminRepository = Depends(get_admin_repository),
 ):
     ensure_can_manage_content(identity)
-    movie = await repository.archive_movie(validate_uuid(movie_id, field_name="movie_id"))
+    movie = await repository.archive_movie(validate_uuid(movie_id, field_name="movie_id"), identity.user_id)
     return api_response(data=AdminMovieSummary.model_validate(movie))
 
 
@@ -163,6 +239,7 @@ async def update_audio(
     audio = await repository.update_audio(
         validate_uuid(audio_id, field_name="audio_id"),
         payload.model_dump(exclude_none=True),
+        identity.user_id,
     )
     return api_response(data=AdminAudioSummary.model_validate(audio))
 
@@ -174,7 +251,7 @@ async def archive_audio(
     repository: AdminRepository = Depends(get_admin_repository),
 ):
     ensure_can_manage_content(identity)
-    audio = await repository.archive_audio(validate_uuid(audio_id, field_name="audio_id"))
+    audio = await repository.archive_audio(validate_uuid(audio_id, field_name="audio_id"), identity.user_id)
     return api_response(data=AdminAudioSummary.model_validate(audio))
 
 
@@ -212,6 +289,7 @@ async def update_content_file(
     content_file = await repository.update_content_file(
         validate_uuid(content_file_id, field_name="content_file_id"),
         payload.model_dump(exclude_none=True),
+        identity.user_id,
     )
     return api_response(data=AdminContentFileSummary.model_validate(content_file))
 
@@ -224,6 +302,7 @@ async def deactivate_content_file(
 ):
     ensure_can_manage_content(identity)
     content_file = await repository.deactivate_content_file(
-        validate_uuid(content_file_id, field_name="content_file_id")
+        validate_uuid(content_file_id, field_name="content_file_id"),
+        identity.user_id,
     )
     return api_response(data=AdminContentFileSummary.model_validate(content_file))

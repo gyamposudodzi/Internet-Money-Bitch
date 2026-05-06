@@ -33,7 +33,12 @@ the interface stays reviewable.
 - Connect with bootstrap admin auth
 - View admin identity and overview metrics
 - Review admin users
+- Review platform users
+- Ban and unban users
+- Apply manual point adjustments
+- View recent audit activity
 - Browse protected movie/audio inventory
 - Create movies
 - Create audio items
 - Attach content files
+- Edit and archive content inventory

@@ -42,7 +42,8 @@ The catalog, download-session, Telegram, and ad routes now use repository
 layers and are ready to read/write against Postgres when `DATABASE_URL` is
 configured. Admin routes now require a configured bearer token plus an
 admin user id header, backed by database role checks. The current focus is the
-remaining route groups and the first web client scaffold on top of these endpoints.
+remaining route groups, stronger admin auth, and richer operations tooling on top
+of these endpoints.
 
 ## Admin Auth
 
@@ -58,6 +59,10 @@ Starter admin endpoints:
 - `GET /api/v1/admin/auth/me`
 - `GET /api/v1/admin/analytics/overview`
 - `GET /api/v1/admin/users`
+- `GET /api/v1/admin/platform-users`
+- `PATCH /api/v1/admin/platform-users/{user_id}`
+- `POST /api/v1/admin/platform-users/{user_id}/points-adjustments`
+- `GET /api/v1/admin/audit-logs`
 - `GET /api/v1/admin/movies`
 - `POST /api/v1/admin/movies`
 - `PATCH /api/v1/admin/movies/{movie_id}`

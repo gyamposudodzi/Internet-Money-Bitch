@@ -52,6 +52,60 @@ class StubAdminRepository:
             }
         ]
 
+    async def list_platform_users(self):
+        return [
+            {
+                "user_id": "22222222-2222-2222-2222-222222222222",
+                "telegram_user_id": 900000002,
+                "telegram_username": "moviefan",
+                "role": "user",
+                "points_balance": 14,
+                "is_banned": False,
+                "last_seen_at": "2026-05-06T10:00:00+00:00",
+            }
+        ]
+
+    async def update_platform_user(self, user_id: str, payload: dict, actor_user_id: str):
+        return {
+            "user_id": user_id,
+            "telegram_user_id": 900000002,
+            "telegram_username": "moviefan",
+            "role": "user",
+            "points_balance": 14,
+            "is_banned": payload["is_banned"],
+            "last_seen_at": "2026-05-06T10:00:00+00:00",
+        }
+
+    async def adjust_user_points(self, user_id: str, payload: dict, actor_user_id: str):
+        return {
+            "user": {
+                "user_id": user_id,
+                "telegram_user_id": 900000002,
+                "telegram_username": "moviefan",
+                "role": "user",
+                "points_balance": 19,
+                "is_banned": False,
+                "last_seen_at": "2026-05-06T10:00:00+00:00",
+            },
+            "balance_before": 14,
+            "balance_after": 19,
+            "amount": payload["amount"],
+            "reason": payload["reason"],
+        }
+
+    async def list_audit_logs(self):
+        return [
+            {
+                "id": "dddd1111-1111-1111-1111-111111111111",
+                "actor_user_id": "11111111-1111-1111-1111-111111111111",
+                "action": "points.adjusted",
+                "entity_type": "user",
+                "entity_id": "22222222-2222-2222-2222-222222222222",
+                "metadata": {"amount": 5, "reason": "manual bonus"},
+                "created_at": "2026-05-06T10:05:00+00:00",
+            }
+        ]
+
     async def list_movies(self):
         return [
             {
@@ -76,7 +130,7 @@ class StubAdminRepository:
             "featured_rank": payload.get("featured_rank"),
         }
 
-    async def update_movie(self, movie_id: str, payload: dict):
+    async def update_movie(self, movie_id: str, payload: dict, actor_user_id: str | None = None):
         return {
             "id": movie_id,
             "title": payload.get("title", "Heatline"),
@@ -87,7 +141,7 @@ class StubAdminRepository:
             "featured_rank": payload.get("featured_rank"),
         }
 
-    async def archive_movie(self, movie_id: str):
+    async def archive_movie(self, movie_id: str, actor_user_id: str | None = None):
         return {
             "id": movie_id,
             "title": "Heatline",
@@ -124,7 +178,7 @@ class StubAdminRepository:
             "featured_rank": payload.get("featured_rank"),
         }
 
-    async def update_audio(self, audio_id: str, payload: dict):
+    async def update_audio(self, audio_id: str, payload: dict, actor_user_id: str | None = None):
         return {
             "id": audio_id,
             "title": payload.get("title", "Night Drive"),
@@ -136,7 +190,7 @@ class StubAdminRepository:
             "featured_rank": payload.get("featured_rank"),
         }
 
-    async def archive_audio(self, audio_id: str):
+    async def archive_audio(self, audio_id: str, actor_user_id: str | None = None):
         return {
             "id": audio_id,
             "title": "Night Drive",
@@ -182,7 +236,7 @@ class StubAdminRepository:
             "is_active": payload["is_active"],
         }
 
-    async def update_content_file(self, content_file_id: str, payload: dict):
+    async def update_content_file(self, content_file_id: str, payload: dict, actor_user_id: str | None = None):
         return {
             "id": content_file_id,
             "content_kind": "movie",
@@ -198,7 +252,7 @@ class StubAdminRepository:
             "is_active": payload.get("is_active", True),
         }
 
-    async def deactivate_content_file(self, content_file_id: str):
+    async def deactivate_content_file(self, content_file_id: str, actor_user_id: str | None = None):
         return {
             "id": content_file_id,
             "content_kind": "movie",
@@ -259,6 +313,62 @@ def test_admin_users_denies_limited_admin(monkeypatch):
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "admin_permission_denied"
+    app.dependency_overrides.clear()
+
+
+def test_admin_platform_users_list(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.get("/api/v1/admin/platform-users", headers=_headers("11111111-1111-1111-1111-111111111111"))
+
+    assert response.status_code == 200
+    assert response.json()["data"][0]["telegram_username"] == "moviefan"
+    app.dependency_overrides.clear()
+
+
+def test_admin_can_ban_platform_user(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/admin/platform-users/22222222-2222-2222-2222-222222222222",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+        json={"is_banned": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["is_banned"] is True
+    app.dependency_overrides.clear()
+
+
+def test_admin_can_adjust_user_points(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/admin/platform-users/22222222-2222-2222-2222-222222222222/points-adjustments",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+        json={"amount": 5, "reason": "manual bonus"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["balance_after"] == 19
+    app.dependency_overrides.clear()
+
+
+def test_admin_can_view_audit_logs(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.get("/api/v1/admin/audit-logs", headers=_headers("11111111-1111-1111-1111-111111111111"))
+
+    assert response.status_code == 200
+    assert response.json()["data"][0]["action"] == "points.adjusted"
     app.dependency_overrides.clear()
 
 

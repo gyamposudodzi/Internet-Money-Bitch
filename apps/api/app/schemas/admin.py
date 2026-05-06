@@ -30,6 +30,43 @@ class AdminUserSummary(BaseModel):
     can_view_analytics: bool
 
 
+class AdminPlatformUserSummary(BaseModel):
+    user_id: str
+    telegram_user_id: int | None = None
+    telegram_username: str | None = None
+    role: str
+    points_balance: int = 0
+    is_banned: bool = False
+    last_seen_at: str | None = None
+
+
+class AdminUserModerationRequest(BaseModel):
+    is_banned: bool
+
+
+class AdminPointAdjustmentRequest(BaseModel):
+    amount: int
+    reason: str
+
+
+class AdminPointAdjustmentResponse(BaseModel):
+    user: AdminPlatformUserSummary
+    balance_before: int
+    balance_after: int
+    amount: int
+    reason: str
+
+
+class AdminAuditLogSummary(BaseModel):
+    id: str
+    actor_user_id: str | None = None
+    action: str
+    entity_type: str
+    entity_id: str | None = None
+    metadata: dict
+    created_at: str
+
+
 class AdminMovieCreateRequest(BaseModel):
     title: str
     slug: str

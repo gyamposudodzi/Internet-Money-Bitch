@@ -56,7 +56,7 @@ Exit condition:
 - [x] Create initial API specification
 - [x] Create base monorepo folder structure
 - [x] Choose final backend framework
-- [ ] Choose final frontend framework/runtime details
+- [x] Choose final frontend framework/runtime details
 - [ ] Choose ad provider strategy
 - [ ] Choose external storage provider
 - [x] Define environment variable strategy
@@ -74,6 +74,7 @@ Exit condition:
 - [~] Add authentication foundation
 - [x] Add error handling and response format
 - [ ] Add logging and audit helpers
+- [~] Add logging and audit helpers
 - [x] Add health check endpoint
 
 Exit condition:
@@ -145,10 +146,10 @@ Exit condition:
 - [~] Build content publishing UI
 - [~] Build file/quality assignment UI
 - [~] Build user monitoring tools
-- [ ] Build points adjustment tools
+- [~] Build points adjustment tools
 - [~] Build analytics overview
 - [ ] Build ad slot and homepage section management
-- [ ] Build audit log view
+- [~] Build audit log view
 
 Exit condition:
 
@@ -188,12 +189,13 @@ These are the best next tasks from where the repo is today:
 2. Add a simple local seed/run workflow for Postgres or Supabase
 3. Strengthen admin auth beyond shared-token bootstrap mode
 4. Expand the public web app into routed pages and real user auth
-5. Add points adjustment, audit logs, and ad slot management to the admin app
+5. Add ad slot and homepage section management to the admin app
 
 ## Open Decisions
 
 - [x] Backend framework: `FastAPI`
-- [!] Frontend app setup: `Next.js` or plain React/Vite
+- [x] Public frontend app setup: `Next.js`
+- [!] Admin frontend migration: keep static for now or move to `Next.js`
 - [!] External media storage provider
 - [!] Rewarded ad provider
 - [!] Telegram delivery style: bot-first only or bot + channel hybrid

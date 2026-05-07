@@ -1,18 +1,19 @@
 # Admin App
 
-Static admin console for the IMB backend.
+Next.js admin console for the IMB backend.
 
 ## Run Locally
 
-From the repo root:
+From `apps/admin`:
 
 ```powershell
-python -m http.server 4174 -d apps/admin
+npm install
+npm run dev
 ```
 
 Then open:
 
-- `http://localhost:4174`
+- `http://localhost:3001`
 
 ## Backend
 
@@ -38,7 +39,14 @@ the interface stays reviewable.
 - Apply manual point adjustments
 - View recent audit activity
 - Browse protected movie/audio inventory
-- Create movies
-- Create audio items
+- Create movies and attach multiple existing content files in the same form
+- Create audio items and attach multiple existing content files in the same form
 - Attach content files
 - Edit and archive content inventory
+- See whether content files are already attached before reassigning them
+
+## Notes
+
+- Uses the Next.js App Router
+- Keeps the current admin API integration on the client
+- The public site has also moved to `Next.js`

@@ -3,6 +3,7 @@ IMB
 
 Planning document: [PRODUCT_PLAN.md](/c:/Users/DELL/Documents/Github/Internet-Money-Bitch/PRODUCT_PLAN.md)
 Roadmap: [ROADMAP.md](/c:/Users/DELL/Documents/Github/Internet-Money-Bitch/ROADMAP.md)
+Project details: [PROJECT_DETAILS.md](/c:/Users/DELL/Documents/Github/Internet-Money-Bitch/PROJECT_DETAILS.md)
 
 ## Initial Structure
 

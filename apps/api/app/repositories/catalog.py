@@ -81,6 +81,13 @@ class CatalogRepository:
                   'movie' as content_type
                 from public.movies m
                 where m.publication_status = 'published'
+                  and exists (
+                    select 1
+                    from public.content_files cf
+                    where cf.content_kind = 'movie'
+                      and cf.content_id = m.id
+                      and cf.is_active = true
+                  )
                   and (:q is null or m.title ilike :q or coalesce(m.synopsis, '') ilike :q)
                   and (:year is null or m.release_year = :year)
                   and (:language is null or m.language = :language)
@@ -107,6 +114,23 @@ class CatalogRepository:
                   'series' as content_type
                 from public.series s
                 where s.publication_status = 'published'
+                  and (
+                    exists (
+                      select 1
+                      from public.content_files cf
+                      where cf.content_kind = 'series'
+                        and cf.content_id = s.id
+                        and cf.is_active = true
+                    )
+                    or exists (
+                      select 1
+                      from public.seasons sn
+                      join public.episodes e on e.season_id = sn.id
+                      join public.content_files cf on cf.content_kind = 'episode' and cf.content_id = e.id
+                      where sn.series_id = s.id
+                        and cf.is_active = true
+                    )
+                  )
                   and (:q is null or s.title ilike :q or coalesce(s.synopsis, '') ilike :q)
                   and (:year is null or s.release_year = :year)
                   and (:language is null or s.language = :language)
@@ -133,6 +157,13 @@ class CatalogRepository:
                   'audio' as content_type
                 from public.audio_items a
                 where a.publication_status = 'published'
+                  and exists (
+                    select 1
+                    from public.content_files cf
+                    where cf.content_kind = 'audio'
+                      and cf.content_id = a.id
+                      and cf.is_active = true
+                  )
                   and (
                     :q is null
                     or a.title ilike :q
@@ -167,6 +198,13 @@ class CatalogRepository:
               'movie' as content_type
             from public.movies m
             where m.publication_status = 'published'
+              and exists (
+                select 1
+                from public.content_files cf
+                where cf.content_kind = 'movie'
+                  and cf.content_id = m.id
+                  and cf.is_active = true
+              )
               and (:year is null or m.release_year = :year)
               and (:language is null or m.language = :language)
               and (
@@ -209,6 +247,13 @@ class CatalogRepository:
               'movie' as content_type
             from public.movies m
             where m.slug = :slug and m.publication_status = 'published'
+              and exists (
+                select 1
+                from public.content_files cf
+                where cf.content_kind = 'movie'
+                  and cf.content_id = m.id
+                  and cf.is_active = true
+              )
             limit 1
             """
         )
@@ -233,6 +278,23 @@ class CatalogRepository:
               'series' as content_type
             from public.series s
             where s.publication_status = 'published'
+              and (
+                exists (
+                  select 1
+                  from public.content_files cf
+                  where cf.content_kind = 'series'
+                    and cf.content_id = s.id
+                    and cf.is_active = true
+                )
+                or exists (
+                  select 1
+                  from public.seasons sn
+                  join public.episodes e on e.season_id = sn.id
+                  join public.content_files cf on cf.content_kind = 'episode' and cf.content_id = e.id
+                  where sn.series_id = s.id
+                    and cf.is_active = true
+                )
+              )
             order by coalesce(s.featured_rank, 999999) asc, coalesce(s.published_at, s.created_at) desc
             limit :limit offset :offset
             """
@@ -258,6 +320,23 @@ class CatalogRepository:
               'series' as content_type
             from public.series s
             where s.slug = :slug and s.publication_status = 'published'
+              and (
+                exists (
+                  select 1
+                  from public.content_files cf
+                  where cf.content_kind = 'series'
+                    and cf.content_id = s.id
+                    and cf.is_active = true
+                )
+                or exists (
+                  select 1
+                  from public.seasons sn
+                  join public.episodes e on e.season_id = sn.id
+                  join public.content_files cf on cf.content_kind = 'episode' and cf.content_id = e.id
+                  where sn.series_id = s.id
+                    and cf.is_active = true
+                )
+              )
             limit 1
             """
         )
@@ -288,6 +367,13 @@ class CatalogRepository:
               'audio' as content_type
             from public.audio_items a
             where a.publication_status = 'published'
+              and exists (
+                select 1
+                from public.content_files cf
+                where cf.content_kind = 'audio'
+                  and cf.content_id = a.id
+                  and cf.is_active = true
+              )
               and (:artist is null or a.artist = :artist)
               and (:album is null or a.album = :album)
               and (:language is null or a.language = :language)
@@ -322,6 +408,13 @@ class CatalogRepository:
               'audio' as content_type
             from public.audio_items a
             where a.slug = :slug and a.publication_status = 'published'
+              and exists (
+                select 1
+                from public.content_files cf
+                where cf.content_kind = 'audio'
+                  and cf.content_id = a.id
+                  and cf.is_active = true
+              )
             limit 1
             """
         )

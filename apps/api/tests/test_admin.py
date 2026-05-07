@@ -239,8 +239,10 @@ class StubAdminRepository:
     async def update_content_file(self, content_file_id: str, payload: dict, actor_user_id: str | None = None):
         return {
             "id": content_file_id,
-            "content_kind": "movie",
-            "content_id": "44444444-4444-4444-4444-444444444441",
+            "content_kind": payload.get("content_kind", "movie"),
+            "content_id": payload.get("content_id", "44444444-4444-4444-4444-444444444441"),
+            "assignment_state": "attached",
+            "assignment_label": "Heatline",
             "label": payload.get("label", "Heatline 720p"),
             "quality": payload.get("quality", "720p"),
             "format": payload.get("format", "mp4"),
@@ -498,4 +500,24 @@ def test_admin_deactivate_content_file(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["data"]["is_active"] is False
+    app.dependency_overrides.clear()
+
+
+def test_admin_reassign_content_file(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/admin/content-files/66666666-6666-6666-6666-666666666661",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+        json={
+            "content_kind": "audio",
+            "content_id": "55555555-5555-5555-5555-555555555551",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["content_kind"] == "audio"
+    assert response.json()["data"]["content_id"] == "55555555-5555-5555-5555-555555555551"
     app.dependency_overrides.clear()

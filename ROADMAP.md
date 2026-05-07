@@ -195,7 +195,7 @@ These are the best next tasks from where the repo is today:
 
 - [x] Backend framework: `FastAPI`
 - [x] Public frontend app setup: `Next.js`
-- [!] Admin frontend migration: keep static for now or move to `Next.js`
+- [x] Admin frontend app setup: `Next.js`
 - [!] External media storage provider
 - [!] Rewarded ad provider
 - [!] Telegram delivery style: bot-first only or bot + channel hybrid

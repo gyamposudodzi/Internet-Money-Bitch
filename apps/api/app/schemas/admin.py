@@ -143,6 +143,8 @@ class AdminContentFileCreateRequest(BaseModel):
 
 
 class AdminContentFileUpdateRequest(BaseModel):
+    content_kind: str | None = None
+    content_id: str | None = None
     label: str | None = None
     quality: str | None = None
     format: str | None = None
@@ -184,6 +186,8 @@ class AdminContentFileSummary(BaseModel):
     id: str
     content_kind: str
     content_id: str
+    assignment_state: str | None = None
+    assignment_label: str | None = None
     label: str | None = None
     quality: str | None = None
     format: str | None = None

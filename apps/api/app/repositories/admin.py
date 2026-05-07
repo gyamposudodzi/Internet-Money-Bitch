@@ -536,9 +536,23 @@ class AdminRepository:
             text(
                 """
                 select
-                  id::text as id,
+                  cf.id::text as id,
                   content_kind::text as content_kind,
                   content_id::text as content_id,
+                  case
+                    when cf.content_kind = 'movie' and m.id is not null then 'attached'
+                    when cf.content_kind = 'audio' and a.id is not null then 'attached'
+                    when cf.content_kind = 'series' and s.id is not null then 'attached'
+                    when cf.content_kind = 'episode' and e.id is not null then 'attached'
+                    else 'unassigned'
+                  end as assignment_state,
+                  case
+                    when cf.content_kind = 'movie' then m.title
+                    when cf.content_kind = 'audio' then a.title
+                    when cf.content_kind = 'series' then s.title
+                    when cf.content_kind = 'episode' then e.title
+                    else null
+                  end as assignment_label,
                   label,
                   quality,
                   format,
@@ -548,8 +562,16 @@ class AdminRepository:
                   requires_ad,
                   points_cost,
                   is_active
-                from public.content_files
-                order by created_at desc
+                from public.content_files cf
+                left join public.movies m
+                  on cf.content_kind = 'movie' and m.id = cf.content_id
+                left join public.audio_items a
+                  on cf.content_kind = 'audio' and a.id = cf.content_id
+                left join public.series s
+                  on cf.content_kind = 'series' and s.id = cf.content_id
+                left join public.episodes e
+                  on cf.content_kind = 'episode' and e.id = cf.content_id
+                order by cf.created_at desc
                 """
             )
         )
@@ -641,11 +663,15 @@ class AdminRepository:
     ) -> dict:
         existing = await self._fetch_content_file(content_file_id)
         updated = {**existing, **{key: value for key, value in payload.items() if value is not None}}
+        if "content_kind" in payload or "content_id" in payload:
+            await self._assert_content_target_exists(updated["content_kind"], updated["content_id"])
         await self.session.execute(
             text(
                 """
                 update public.content_files
                 set
+                  content_kind = :content_kind::public.content_kind,
+                  content_id = :content_id::uuid,
                   label = :label,
                   quality = :quality,
                   format = :format,
@@ -829,6 +855,8 @@ class AdminRepository:
             text(
                 """
                 select
+                  content_kind::text as content_kind,
+                  content_id::text as content_id,
                   label,
                   quality,
                   format,
@@ -860,9 +888,23 @@ class AdminRepository:
             text(
                 """
                 select
-                  id::text as id,
+                  cf.id::text as id,
                   content_kind::text as content_kind,
                   content_id::text as content_id,
+                  case
+                    when cf.content_kind = 'movie' and m.id is not null then 'attached'
+                    when cf.content_kind = 'audio' and a.id is not null then 'attached'
+                    when cf.content_kind = 'series' and s.id is not null then 'attached'
+                    when cf.content_kind = 'episode' and e.id is not null then 'attached'
+                    else 'unassigned'
+                  end as assignment_state,
+                  case
+                    when cf.content_kind = 'movie' then m.title
+                    when cf.content_kind = 'audio' then a.title
+                    when cf.content_kind = 'series' then s.title
+                    when cf.content_kind = 'episode' then e.title
+                    else null
+                  end as assignment_label,
                   label,
                   quality,
                   format,
@@ -872,8 +914,16 @@ class AdminRepository:
                   requires_ad,
                   points_cost,
                   is_active
-                from public.content_files
-                where id = :id::uuid
+                from public.content_files cf
+                left join public.movies m
+                  on cf.content_kind = 'movie' and m.id = cf.content_id
+                left join public.audio_items a
+                  on cf.content_kind = 'audio' and a.id = cf.content_id
+                left join public.series s
+                  on cf.content_kind = 'series' and s.id = cf.content_id
+                left join public.episodes e
+                  on cf.content_kind = 'episode' and e.id = cf.content_id
+                where cf.id = :id::uuid
                 limit 1
                 """
             ),

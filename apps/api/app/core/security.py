@@ -4,6 +4,45 @@ from app.core.config import settings
 from app.core.errors import AppError
 
 
+def authenticate_admin_login(identifier: str, password: str) -> str:
+    if not settings.admin_api_token:
+        raise AppError(
+            code="admin_auth_not_configured",
+            message="ADMIN_API_TOKEN is not configured.",
+            status_code=503,
+        )
+
+    if not settings.admin_login_password or not settings.admin_login_user_id:
+        raise AppError(
+            code="admin_login_not_configured",
+            message="Admin login credentials are not configured.",
+            status_code=503,
+        )
+
+    configured_identifiers = {
+        value.strip().lower()
+        for value in [settings.admin_login_username, settings.admin_login_email]
+        if value and value.strip()
+    }
+    normalized_identifier = identifier.strip().lower()
+
+    if not configured_identifiers:
+        raise AppError(
+            code="admin_login_not_configured",
+            message="Admin login username or email is not configured.",
+            status_code=503,
+        )
+
+    if normalized_identifier not in configured_identifiers or password != settings.admin_login_password:
+        raise AppError(
+            code="admin_login_invalid",
+            message="Invalid username/email or password.",
+            status_code=401,
+        )
+
+    return settings.admin_login_user_id
+
+
 def require_admin_token(authorization: str | None = Header(default=None)) -> str:
     if not settings.admin_api_token:
         raise AppError(

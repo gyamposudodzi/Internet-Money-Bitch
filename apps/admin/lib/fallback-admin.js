@@ -72,6 +72,33 @@ export const fallbackAdmin = {
       is_active: true,
     },
   ],
+  homepageSections: [
+    {
+      id: "77777777-7777-7777-7777-777777777771",
+      title: "KDrama",
+      slug: "kdrama",
+      sort_order: 1,
+      is_active: true,
+      config: {
+        content_type: "series",
+        sort: "featured",
+        limit: 12,
+        language: "ko",
+      },
+    },
+    {
+      id: "77777777-7777-7777-7777-777777777772",
+      title: "Hot Movies",
+      slug: "hot-movies",
+      sort_order: 2,
+      is_active: true,
+      config: {
+        content_type: "movie",
+        sort: "popular",
+        limit: 12,
+      },
+    },
+  ],
   auditLogs: [
     {
       id: "dddd1111-1111-1111-1111-111111111111",

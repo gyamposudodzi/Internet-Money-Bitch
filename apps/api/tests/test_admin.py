@@ -220,6 +220,38 @@ class StubAdminRepository:
             }
         ]
 
+    async def list_homepage_sections(self):
+        return [
+            {
+                "id": "77777777-7777-7777-7777-777777777771",
+                "title": "Hot Movies",
+                "slug": "hot-movies",
+                "sort_order": 1,
+                "is_active": True,
+                "config": {"content_type": "movie", "sort": "popular", "limit": 12},
+            }
+        ]
+
+    async def create_homepage_section(self, payload: dict, actor_user_id: str):
+        return {
+            "id": "77777777-7777-7777-7777-777777777772",
+            "title": payload["title"],
+            "slug": payload["slug"],
+            "sort_order": payload.get("sort_order", 0),
+            "is_active": payload.get("is_active", True),
+            "config": payload.get("config", {}),
+        }
+
+    async def update_homepage_section(self, section_id: str, payload: dict, actor_user_id: str | None = None):
+        return {
+            "id": section_id,
+            "title": payload.get("title", "Hot Movies"),
+            "slug": payload.get("slug", "hot-movies"),
+            "sort_order": payload.get("sort_order", 1),
+            "is_active": payload.get("is_active", True),
+            "config": payload.get("config", {"content_type": "movie", "sort": "popular", "limit": 12}),
+        }
+
     async def create_content_file(self, payload: dict, actor_user_id: str):
         return {
             "id": "cccc1111-1111-1111-1111-111111111111",
@@ -280,6 +312,51 @@ def _headers(user_id: str):
         "Authorization": "Bearer test-admin-token",
         "X-Admin-User-Id": user_id,
     }
+
+
+def test_admin_login_accepts_username_or_email(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    monkeypatch.setattr("app.core.config.settings.admin_login_username", "imb_admin")
+    monkeypatch.setattr("app.core.config.settings.admin_login_email", "admin@example.com")
+    monkeypatch.setattr("app.core.config.settings.admin_login_password", "super-secret")
+    monkeypatch.setattr(
+        "app.core.config.settings.admin_login_user_id",
+        "11111111-1111-1111-1111-111111111111",
+    )
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/admin/auth/login",
+        json={"identifier": "admin@example.com", "password": "super-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["access_token"] == "test-admin-token"
+    assert response.json()["data"]["admin_user_id"] == "11111111-1111-1111-1111-111111111111"
+    app.dependency_overrides.clear()
+
+
+def test_admin_login_rejects_invalid_credentials(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    monkeypatch.setattr("app.core.config.settings.admin_login_username", "imb_admin")
+    monkeypatch.setattr("app.core.config.settings.admin_login_email", "admin@example.com")
+    monkeypatch.setattr("app.core.config.settings.admin_login_password", "super-secret")
+    monkeypatch.setattr(
+        "app.core.config.settings.admin_login_user_id",
+        "11111111-1111-1111-1111-111111111111",
+    )
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/admin/auth/login",
+        json={"identifier": "wrong@example.com", "password": "bad-password"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "admin_login_invalid"
+    app.dependency_overrides.clear()
 
 
 def test_admin_me_requires_valid_headers(monkeypatch):
@@ -520,4 +597,38 @@ def test_admin_reassign_content_file(monkeypatch):
     assert response.status_code == 200
     assert response.json()["data"]["content_kind"] == "audio"
     assert response.json()["data"]["content_id"] == "55555555-5555-5555-5555-555555555551"
+    app.dependency_overrides.clear()
+
+
+def test_admin_can_list_homepage_sections(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.get("/api/v1/admin/homepage-sections", headers=_headers("11111111-1111-1111-1111-111111111111"))
+
+    assert response.status_code == 200
+    assert response.json()["data"][0]["slug"] == "hot-movies"
+    app.dependency_overrides.clear()
+
+
+def test_admin_can_create_homepage_section(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/admin/homepage-sections",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+        json={
+            "title": "KDrama",
+            "slug": "kdrama",
+            "sort_order": 2,
+            "is_active": True,
+            "config": {"content_type": "series", "language": "ko", "limit": 12},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["slug"] == "kdrama"
     app.dependency_overrides.clear()

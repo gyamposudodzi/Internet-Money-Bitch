@@ -25,7 +25,11 @@ class Settings(BaseSettings):
 
     ad_callback_secret: str = Field(default="", repr=False)
     download_session_ttl_minutes: int = 15
-    admin_api_token: str = Field(default="", repr=False)
+    admin_api_token: str = Field(default="test-admin-token", repr=False)
+    admin_login_username: str = "imb_admin"
+    admin_login_email: str = "admin@example.com"
+    admin_login_password: str = Field(default="admin12345", repr=False)
+    admin_login_user_id: str = "11111111-1111-1111-1111-111111111111"
 
     @property
     def cors_origins(self) -> list[str]:

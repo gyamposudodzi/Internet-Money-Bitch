@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db_session
 from app.core.errors import AppError
-from app.core.security import require_admin_user_header
+from app.core.security import authenticate_admin_login, require_admin_user_header
 from app.repositories.admin import AdminRepository
 from app.repositories.downloads import validate_uuid
 from app.schemas.admin import (
@@ -14,7 +15,12 @@ from app.schemas.admin import (
     AdminContentFileCreateRequest,
     AdminContentFileUpdateRequest,
     AdminContentFileSummary,
+    AdminHomepageSectionCreateRequest,
+    AdminHomepageSectionSummary,
+    AdminHomepageSectionUpdateRequest,
     AdminIdentityResponse,
+    AdminLoginRequest,
+    AdminLoginResponse,
     AdminMovieCreateRequest,
     AdminMovieUpdateRequest,
     AdminMovieSummary,
@@ -39,6 +45,21 @@ async def get_current_admin_identity(
     repository: AdminRepository = Depends(get_admin_repository),
 ):
     return await repository.get_admin_identity(validate_uuid(user_id, field_name="X-Admin-User-Id"))
+
+
+@router.post("/auth/login")
+async def admin_login(
+    payload: AdminLoginRequest,
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    user_id = authenticate_admin_login(payload.identifier, payload.password)
+    identity = await repository.get_admin_identity(validate_uuid(user_id, field_name="admin_login_user_id"))
+    return api_response(
+        data=AdminLoginResponse(
+            access_token=settings.admin_api_token,
+            admin_user_id=identity.user_id,
+        )
+    )
 
 
 @router.get("/auth/me")
@@ -306,3 +327,40 @@ async def deactivate_content_file(
         identity.user_id,
     )
     return api_response(data=AdminContentFileSummary.model_validate(content_file))
+
+
+@router.get("/homepage-sections")
+async def list_homepage_sections(
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    sections = await repository.list_homepage_sections()
+    return api_response(data=[AdminHomepageSectionSummary.model_validate(row) for row in sections])
+
+
+@router.post("/homepage-sections")
+async def create_homepage_section(
+    payload: AdminHomepageSectionCreateRequest,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    section = await repository.create_homepage_section(payload.model_dump(), identity.user_id)
+    return api_response(data=AdminHomepageSectionSummary.model_validate(section))
+
+
+@router.patch("/homepage-sections/{section_id}")
+async def update_homepage_section(
+    section_id: str,
+    payload: AdminHomepageSectionUpdateRequest,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    section = await repository.update_homepage_section(
+        validate_uuid(section_id, field_name="section_id"),
+        payload.model_dump(exclude_none=True),
+        identity.user_id,
+    )
+    return api_response(data=AdminHomepageSectionSummary.model_validate(section))

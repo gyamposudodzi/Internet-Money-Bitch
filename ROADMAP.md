@@ -99,8 +99,8 @@ Exit condition:
 ## Phase 4: Public Web App
 
 - [~] Set up web app scaffold
-- [ ] Build homepage
-- [ ] Build browse/search pages
+- [~] Build homepage
+- [~] Build browse/search pages
 - [ ] Build movie details page
 - [ ] Build series details page
 - [ ] Build audio details page
@@ -148,7 +148,7 @@ Exit condition:
 - [~] Build user monitoring tools
 - [~] Build points adjustment tools
 - [~] Build analytics overview
-- [ ] Build ad slot and homepage section management
+- [~] Build ad slot and homepage section management
 - [~] Build audit log view
 
 Exit condition:
@@ -189,7 +189,7 @@ These are the best next tasks from where the repo is today:
 2. Add a simple local seed/run workflow for Postgres or Supabase
 3. Strengthen admin auth beyond shared-token bootstrap mode
 4. Expand the public web app into routed pages and real user auth
-5. Add ad slot and homepage section management to the admin app
+5. Add homepage-section drag/order polish and ad slot management to the admin app
 
 ## Open Decisions
 

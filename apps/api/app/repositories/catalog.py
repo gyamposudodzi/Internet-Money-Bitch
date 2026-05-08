@@ -23,28 +23,41 @@ class CatalogRepository:
         self.session = session
 
     async def get_home_sections(self) -> dict:
-        featured_movies = await self.list_movies(
-            CatalogFilters(sort="featured", page=1, limit=12)
-        )
-        latest_movies = await self.list_movies(
-            CatalogFilters(sort="latest", page=1, limit=12)
-        )
-        featured_audio = await self.list_audio(
-            artist=None,
-            album=None,
-            language=None,
-            sort="featured",
-            page=1,
-            limit=12,
-        )
-        ad_slots = await self._list_ad_slots()
-
-        return {
-            "sections": [
+        configured_sections = await self._list_homepage_sections()
+        if configured_sections:
+            sections = []
+            for section in configured_sections:
+                sections.append(
+                    {
+                        "key": section["slug"],
+                        "title": section["title"],
+                        "items": await self._resolve_homepage_section_items(section),
+                    }
+                )
+        else:
+            featured_movies = await self.list_movies(
+                CatalogFilters(sort="featured", page=1, limit=12)
+            )
+            latest_movies = await self.list_movies(
+                CatalogFilters(sort="latest", page=1, limit=12)
+            )
+            featured_audio = await self.list_audio(
+                artist=None,
+                album=None,
+                language=None,
+                sort="featured",
+                page=1,
+                limit=12,
+            )
+            sections = [
                 {"key": "featured-movies", "title": "Featured Movies", "items": featured_movies},
                 {"key": "latest-movies", "title": "Latest Movies", "items": latest_movies},
                 {"key": "featured-audio", "title": "Featured Audio", "items": featured_audio},
-            ],
+            ]
+        ad_slots = await self._list_ad_slots()
+
+        return {
+            "sections": sections,
             "ad_slots": ad_slots,
         }
 
@@ -466,6 +479,131 @@ class CatalogRepository:
             """
         )
         result = await self.session.execute(query)
+        return [dict(row) for row in result.mappings().all()]
+
+    async def _list_homepage_sections(self) -> list[dict]:
+        query = text(
+            """
+            select
+              hs.id::text as id,
+              hs.title,
+              hs.slug,
+              hs.sort_order,
+              hs.config
+            from public.homepage_sections hs
+            where hs.is_active = true
+            order by hs.sort_order asc, hs.title asc
+            """
+        )
+        result = await self.session.execute(query)
+        return [dict(row) for row in result.mappings().all()]
+
+    async def _resolve_homepage_section_items(self, section: dict) -> list[dict]:
+        config = section.get("config") or {}
+        content_type = (config.get("content_type") or "movie").lower()
+        limit = max(1, min(int(config.get("limit") or 12), 24))
+        sort = config.get("sort") or "latest"
+        language = config.get("language")
+        genre = config.get("genre")
+        year = config.get("year")
+        query = config.get("query")
+
+        if query:
+            return await self.search(
+                q=query,
+                content_type=content_type,
+                genre=genre,
+                year=year,
+                language=language,
+                page=1,
+                limit=limit,
+            )
+
+        if content_type == "movie":
+            return await self.list_movies(
+                CatalogFilters(
+                    genre=genre,
+                    year=year,
+                    language=language,
+                    sort=sort,
+                    page=1,
+                    limit=limit,
+                )
+            )
+
+        if content_type == "series":
+            return await self._list_series_section(
+                sort=sort,
+                page=1,
+                limit=limit,
+                language=language,
+            )
+
+        if content_type == "audio":
+            return await self.list_audio(
+                artist=None,
+                album=None,
+                language=language,
+                sort=sort,
+                page=1,
+                limit=limit,
+            )
+
+        return []
+
+    async def _list_series_section(
+        self,
+        sort: str,
+        page: int,
+        limit: int,
+        language: str | None = None,
+    ) -> list[dict]:
+        order_clause = (
+            "coalesce(s.featured_rank, 999999) asc, coalesce(s.published_at, s.created_at) desc"
+            if sort == "featured"
+            else "coalesce(s.published_at, s.created_at) desc"
+        )
+        query = text(
+            f"""
+            select
+              s.id::text as id,
+              s.title,
+              s.slug,
+              s.poster_url,
+              s.release_year,
+              'series' as content_type
+            from public.series s
+            where s.publication_status = 'published'
+              and (:language is null or s.language = :language)
+              and (
+                exists (
+                  select 1
+                  from public.content_files cf
+                  where cf.content_kind = 'series'
+                    and cf.content_id = s.id
+                    and cf.is_active = true
+                )
+                or exists (
+                  select 1
+                  from public.seasons sn
+                  join public.episodes e on e.season_id = sn.id
+                  join public.content_files cf on cf.content_kind = 'episode' and cf.content_id = e.id
+                  where sn.series_id = s.id
+                    and cf.is_active = true
+                )
+              )
+            order by {order_clause}
+            limit :limit offset :offset
+            """
+        )
+        result = await self.session.execute(
+            query,
+            {
+                "language": language,
+                "limit": limit,
+                "offset": self._offset(page, limit),
+            },
+        )
         return [dict(row) for row in result.mappings().all()]
 
     @staticmethod

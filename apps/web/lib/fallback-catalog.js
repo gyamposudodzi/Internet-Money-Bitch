@@ -2,8 +2,32 @@ export const fallbackCatalog = {
   home: {
     sections: [
       {
-        key: "featured-movies",
-        title: "Featured Movies",
+        key: "kdrama",
+        title: "KDrama",
+        items: [
+          {
+            id: "44444444-4444-4444-4444-444444444441",
+            title: "Seoul Echoes",
+            slug: "seoul-echoes",
+            poster_url:
+              "https://images.unsplash.com/photo-1525182008055-f88b95ff7980?auto=format&fit=crop&w=900&q=80",
+            release_year: 2026,
+            content_type: "series",
+          },
+          {
+            id: "44444444-4444-4444-4444-444444444442",
+            title: "Midnight Promise",
+            slug: "midnight-promise",
+            poster_url:
+              "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=900&q=80",
+            release_year: 2025,
+            content_type: "series",
+          },
+        ],
+      },
+      {
+        key: "hot-movies",
+        title: "Hot Movies",
         items: [
           {
             id: "44444444-4444-4444-4444-444444444441",
@@ -14,11 +38,20 @@ export const fallbackCatalog = {
             release_year: 2026,
             content_type: "movie",
           },
+          {
+            id: "44444444-4444-4444-4444-444444444443",
+            title: "Concrete Rush",
+            slug: "concrete-rush",
+            poster_url:
+              "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80",
+            release_year: 2024,
+            content_type: "movie",
+          },
         ],
       },
       {
-        key: "featured-audio",
-        title: "Featured Audio",
+        key: "late-night-audio",
+        title: "Late Night Audio",
         items: [
           {
             id: "55555555-5555-5555-5555-555555555551",

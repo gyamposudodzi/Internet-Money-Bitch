@@ -4,20 +4,100 @@ import { useEffect, useMemo, useState } from "react";
 
 import { fallbackAdmin } from "../lib/fallback-admin";
 
+const testAdminCredentials = {
+  username: "imb_admin",
+  email: "admin@example.com",
+  password: "admin12345",
+  token: "test-admin-token",
+  userId: "11111111-1111-1111-1111-111111111111",
+};
+
+const topNavItems = [
+  ["dashboard", "Dashboard"],
+  ["analytics", "Analytics"],
+  ["contents", "Contents"],
+  ["users", "Users"],
+  ["settings", "Settings"],
+];
+
+const profileMenuItems = [
+  ["profile", "Profile"],
+  ["settings", "Settings"],
+];
+
+const storageKey = "imb-admin-session";
+
+const initialMovieForm = {
+  title: "",
+  slug: "",
+  release_year: "",
+  language: "",
+  publication_status: "draft",
+  duration_minutes: "",
+  synopsis: "",
+};
+
+const initialAudioForm = {
+  title: "",
+  slug: "",
+  artist: "",
+  album: "",
+  language: "",
+  publication_status: "draft",
+  synopsis: "",
+};
+
+const initialFileForm = {
+  content_kind: "movie",
+  content_id: "",
+  label: "",
+  quality: "",
+  format: "",
+  storage_provider: "r2",
+  storage_key: "",
+  points_cost: 0,
+  delivery_mode: "telegram_bot",
+  requires_ad: true,
+};
+
+const initialHomepageSectionForm = {
+  title: "",
+  slug: "",
+  sort_order: 0,
+  is_active: true,
+  content_type: "movie",
+  sort: "featured",
+  limit: 12,
+  language: "",
+  genre: "",
+  query: "",
+};
+
+const initialPointsForm = {
+  user_id: "",
+  amount: "",
+  reason: "",
+};
+
 const initialState = {
   apiBaseUrl: "http://localhost:8000/api/v1",
+  loginIdentifier: "",
+  loginPassword: "",
   adminToken: "",
   adminUserId: "11111111-1111-1111-1111-111111111111",
-  mode: "booting",
+  isAuthenticated: false,
+  isLoading: false,
+  statusMessage: "Sign in with your admin username/email and password to open the dashboard.",
+  loginError: "",
   fallback: false,
-  activeScreen: "overview",
-  activeForm: "movie",
+  activeView: "dashboard",
   identity: null,
   overview: null,
   adminUsers: [],
   platformUsers: [],
   inventory: [],
   contentFiles: [],
+  homepageSections: [],
   auditLogs: [],
   inventoryQuery: "",
   inventoryType: "all",
@@ -25,46 +105,23 @@ const initialState = {
   movieFilePickerOpen: false,
   audioFileSearch: "",
   audioFilePickerOpen: false,
-  movieForm: {
-    title: "",
-    slug: "",
-    release_year: "",
-    language: "",
-    publication_status: "draft",
-    duration_minutes: "",
-    synopsis: "",
-  },
+  showProfileMenu: false,
+  showComposer: false,
+  activeComposerTab: "movie",
+  composerSubmitting: false,
+  composerFeedback: "",
+  composerFeedbackTone: "neutral",
+  movieForm: initialMovieForm,
   selectedMovieFileIds: [],
-  audioForm: {
-    title: "",
-    slug: "",
-    artist: "",
-    album: "",
-    language: "",
-    publication_status: "draft",
-    synopsis: "",
-  },
+  audioForm: initialAudioForm,
   selectedAudioFileIds: [],
-  fileForm: {
-    content_kind: "movie",
-    content_id: "",
-    label: "",
-    quality: "",
-    format: "",
-    storage_provider: "r2",
-    storage_key: "",
-    points_cost: 0,
-    delivery_mode: "telegram_bot",
-    requires_ad: true,
-  },
-  pointsForm: {
-    user_id: "",
-    amount: "",
-    reason: "",
-  },
+  fileForm: initialFileForm,
+  homepageSectionForm: initialHomepageSectionForm,
+  pointsForm: initialPointsForm,
   movieEditId: null,
   audioEditId: null,
   fileEditId: null,
+  homepageSectionEditId: null,
 };
 
 function slugify(value) {
@@ -73,6 +130,14 @@ function slugify(value) {
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function matchesTestAdmin(identifier, password) {
+  const normalized = identifier.trim().toLowerCase();
+  return (
+    password === testAdminCredentials.password &&
+    (normalized === testAdminCredentials.username || normalized === testAdminCredentials.email)
+  );
 }
 
 async function fetchJson(baseUrl, path, options = {}, admin = false, auth = {}) {
@@ -101,16 +166,41 @@ async function fetchJson(baseUrl, path, options = {}, admin = false, auth = {}) 
   return response.json();
 }
 
+function dashboardSubtitle(activeView) {
+  switch (activeView) {
+    case "analytics":
+      return "Tracking platform health, rewards, and delivery performance.";
+    case "contents":
+      return "Manage published titles, downloadable files, and release inventory.";
+    case "users":
+      return "Moderate users, review admins, and adjust reward balances.";
+    case "settings":
+      return "Review connection state and current operator access details.";
+    case "profile":
+      return "Your current admin identity and permission footprint.";
+    default:
+      return "Your operating overview for content, users, and reward activity.";
+  }
+}
+
 export default function Page() {
   const [state, setState] = useState(initialState);
 
   const auth = {
-    adminToken: state.adminToken,
-    adminUserId: state.adminUserId,
+    adminToken: state.adminToken.trim(),
+    adminUserId: state.adminUserId.trim(),
   };
 
+  const identity = state.fallback ? fallbackAdmin.identity : state.identity;
+  const metrics = state.fallback ? fallbackAdmin.overview : state.overview;
+  const adminUsers = state.fallback ? fallbackAdmin.adminUsers : state.adminUsers;
+  const platformUsers = state.fallback ? fallbackAdmin.platformUsers : state.platformUsers;
+  const contentFiles = state.fallback ? fallbackAdmin.contentFiles : state.contentFiles;
+  const homepageSections = state.fallback ? fallbackAdmin.homepageSections : state.homepageSections;
+  const auditLogs = state.fallback ? fallbackAdmin.auditLogs : state.auditLogs;
+
   const normalizedInventory = useMemo(() => {
-    const source = state.inventory.length ? state.inventory : fallbackAdmin.inventory;
+    const source = state.fallback ? fallbackAdmin.inventory : state.inventory;
     const query = state.inventoryQuery.trim().toLowerCase();
     return source.filter((item) => {
       const matchesQuery =
@@ -122,12 +212,6 @@ export default function Page() {
     });
   }, [state.inventory, state.inventoryQuery, state.inventoryType]);
 
-  const metrics = state.overview || fallbackAdmin.overview;
-  const identity = state.identity || fallbackAdmin.identity;
-  const adminUsers = state.adminUsers.length ? state.adminUsers : fallbackAdmin.adminUsers;
-  const platformUsers = state.platformUsers.length ? state.platformUsers : fallbackAdmin.platformUsers;
-  const contentFiles = state.contentFiles.length ? state.contentFiles : fallbackAdmin.contentFiles;
-  const auditLogs = state.auditLogs.length ? state.auditLogs : fallbackAdmin.auditLogs;
   const filteredMovieAttachableFiles = useMemo(() => {
     const query = state.movieFileSearch.trim().toLowerCase();
     if (!query) return contentFiles;
@@ -146,6 +230,7 @@ export default function Page() {
       return haystack.includes(query);
     });
   }, [contentFiles, state.movieFileSearch]);
+
   const filteredAudioAttachableFiles = useMemo(() => {
     const query = state.audioFileSearch.trim().toLowerCase();
     if (!query) return contentFiles;
@@ -165,16 +250,141 @@ export default function Page() {
     });
   }, [contentFiles, state.audioFileSearch]);
 
-  function setMode(mode, message) {
-    setState((current) => ({ ...current, mode, statusMessage: message }));
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return;
+
+    try {
+      const saved = JSON.parse(raw);
+      if (!saved?.isAuthenticated) return;
+
+      const baseState = {
+        apiBaseUrl: saved.apiBaseUrl || initialState.apiBaseUrl,
+        adminToken: saved.adminToken || "",
+        adminUserId: saved.adminUserId || initialState.adminUserId,
+        activeView: saved.activeView || "dashboard",
+        isAuthenticated: true,
+        fallback: Boolean(saved.fallback),
+        statusMessage: saved.fallback
+          ? "Restored local fallback admin session."
+          : "Restored admin session.",
+      };
+
+      if (saved.fallback) {
+        setState((current) => ({
+          ...current,
+          ...baseState,
+          identity: fallbackAdmin.identity,
+          overview: fallbackAdmin.overview,
+          adminUsers: fallbackAdmin.adminUsers,
+          platformUsers: fallbackAdmin.platformUsers,
+          inventory: fallbackAdmin.inventory,
+          contentFiles: fallbackAdmin.contentFiles,
+          homepageSections: fallbackAdmin.homepageSections,
+          auditLogs: fallbackAdmin.auditLogs,
+        }));
+        return;
+      }
+
+      setState((current) => ({
+        ...current,
+        ...baseState,
+      }));
+
+      loadDashboard(baseState.apiBaseUrl, {
+        adminToken: baseState.adminToken,
+        adminUserId: baseState.adminUserId,
+      }).catch(() => {
+        setState((current) => ({
+          ...current,
+          fallback: true,
+          identity: fallbackAdmin.identity,
+          overview: fallbackAdmin.overview,
+          adminUsers: fallbackAdmin.adminUsers,
+          platformUsers: fallbackAdmin.platformUsers,
+          inventory: fallbackAdmin.inventory,
+          contentFiles: fallbackAdmin.contentFiles,
+          homepageSections: fallbackAdmin.homepageSections,
+          auditLogs: fallbackAdmin.auditLogs,
+          statusMessage: "Stored session restored in fallback mode because the live API could not be reached.",
+        }));
+      });
+    } catch {
+      window.localStorage.removeItem(storageKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (!state.isAuthenticated) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        isAuthenticated: true,
+        apiBaseUrl: state.apiBaseUrl,
+        adminToken: state.adminToken,
+        adminUserId: state.adminUserId,
+        activeView: state.activeView,
+        fallback: state.fallback,
+      })
+    );
+  }, [
+    state.activeView,
+    state.adminToken,
+    state.adminUserId,
+    state.apiBaseUrl,
+    state.fallback,
+    state.isAuthenticated,
+  ]);
+
+  function setStatus(statusMessage, extras = {}) {
+    setState((current) => ({
+      ...current,
+      statusMessage,
+      ...extras,
+    }));
+  }
+
+  function resetComposerState(overrides = {}) {
+    setState((current) => ({
+      ...current,
+      showComposer: false,
+      activeComposerTab: "movie",
+      composerSubmitting: false,
+      composerFeedback: "",
+      composerFeedbackTone: "neutral",
+      movieForm: initialMovieForm,
+      audioForm: initialAudioForm,
+      fileForm: initialFileForm,
+      selectedMovieFileIds: [],
+      selectedAudioFileIds: [],
+      movieFileSearch: "",
+      audioFileSearch: "",
+      movieFilePickerOpen: false,
+      audioFilePickerOpen: false,
+      movieEditId: null,
+      audioEditId: null,
+      fileEditId: null,
+      homepageSectionForm: initialHomepageSectionForm,
+      homepageSectionEditId: null,
+      ...overrides,
+    }));
   }
 
   async function loadInventory(baseUrl = state.apiBaseUrl, authData = auth) {
     try {
-      const [moviesResponse, audioResponse, filesResponse] = await Promise.all([
+      const [moviesResponse, audioResponse, filesResponse, sectionsResponse] = await Promise.all([
         fetchJson(baseUrl, "/admin/movies", {}, true, authData),
         fetchJson(baseUrl, "/admin/audio", {}, true, authData),
         fetchJson(baseUrl, "/admin/content-files", {}, true, authData),
+        fetchJson(baseUrl, "/admin/homepage-sections", {}, true, authData),
       ]);
 
       const movies = (moviesResponse.data || []).map((item) => ({
@@ -204,13 +414,16 @@ export default function Page() {
         ...current,
         inventory: [...movies, ...audio],
         contentFiles: filesResponse.data || [],
+        homepageSections: sectionsResponse.data || [],
       }));
     } catch (error) {
-      console.warn("Inventory fallback engaged.", error);
       setState((current) => ({
         ...current,
+        fallback: true,
         inventory: fallbackAdmin.inventory,
         contentFiles: fallbackAdmin.contentFiles,
+        homepageSections: fallbackAdmin.homepageSections,
+        statusMessage: `Inventory fallback active. ${error.message}`,
       }));
     }
   }
@@ -221,70 +434,135 @@ export default function Page() {
         fetchJson(baseUrl, "/admin/platform-users", {}, true, authData),
         fetchJson(baseUrl, "/admin/audit-logs", {}, true, authData),
       ]);
+
       setState((current) => ({
         ...current,
         platformUsers: platformUsersResponse.data || [],
         auditLogs: auditLogsResponse.data || [],
       }));
     } catch (error) {
-      console.warn("Operations fallback engaged.", error);
       setState((current) => ({
         ...current,
+        fallback: true,
         platformUsers: fallbackAdmin.platformUsers,
         auditLogs: fallbackAdmin.auditLogs,
+        statusMessage: `Operations fallback active. ${error.message}`,
       }));
     }
   }
 
-  async function loadDashboard() {
+  async function loadDashboard(baseUrl = state.apiBaseUrl, authData = auth) {
+    const [identityResponse, overviewResponse, adminUsersResponse] = await Promise.all([
+      fetchJson(baseUrl, "/admin/auth/me", {}, true, authData),
+      fetchJson(baseUrl, "/admin/analytics/overview", {}, true, authData),
+      fetchJson(baseUrl, "/admin/users", {}, true, authData),
+    ]);
+
+    setState((current) => ({
+      ...current,
+      identity: identityResponse.data,
+      overview: overviewResponse.data,
+      adminUsers: adminUsersResponse.data || [],
+      fallback: false,
+      isAuthenticated: true,
+      loginError: "",
+      statusMessage: "Connected to protected admin endpoints.",
+    }));
+
+    await Promise.all([loadInventory(baseUrl, authData), loadOperationsData(baseUrl, authData)]);
+  }
+
+  async function handleLogin(event) {
+    event.preventDefault();
     const apiBaseUrl = state.apiBaseUrl.trim();
-    const authData = {
-      adminToken: state.adminToken.trim(),
-      adminUserId: state.adminUserId.trim(),
-    };
+    const identifier = state.loginIdentifier.trim();
+    const password = state.loginPassword;
+
+    setState((current) => ({
+      ...current,
+      isLoading: true,
+      loginError: "",
+      showProfileMenu: false,
+    }));
 
     try {
-      const [identityResponse, overviewResponse, adminUsersResponse] = await Promise.all([
-        fetchJson(apiBaseUrl, "/admin/auth/me", {}, true, authData),
-        fetchJson(apiBaseUrl, "/admin/analytics/overview", {}, true, authData),
-        fetchJson(apiBaseUrl, "/admin/users", {}, true, authData),
-      ]);
-
+      const loginResponse = await fetchJson(apiBaseUrl, "/admin/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          identifier,
+          password,
+        }),
+      });
+      const authData = {
+        adminToken: loginResponse.data.access_token,
+        adminUserId: loginResponse.data.admin_user_id,
+      };
+      await loadDashboard(apiBaseUrl, authData);
       setState((current) => ({
         ...current,
         apiBaseUrl,
         adminToken: authData.adminToken,
         adminUserId: authData.adminUserId,
-        identity: identityResponse.data,
-        overview: overviewResponse.data,
-        adminUsers: adminUsersResponse.data || [],
-        fallback: false,
-        mode: "live",
-        statusMessage: "Connected to protected admin endpoints.",
+        loginPassword: "",
+        isLoading: false,
       }));
     } catch (error) {
+      if (matchesTestAdmin(identifier, password)) {
+        setState((current) => ({
+          ...current,
+          isLoading: false,
+          isAuthenticated: true,
+          fallback: true,
+          loginError: "",
+          adminToken: testAdminCredentials.token,
+          adminUserId: testAdminCredentials.userId,
+          identity: fallbackAdmin.identity,
+          overview: fallbackAdmin.overview,
+          adminUsers: fallbackAdmin.adminUsers,
+          platformUsers: fallbackAdmin.platformUsers,
+          inventory: fallbackAdmin.inventory,
+          contentFiles: fallbackAdmin.contentFiles,
+          homepageSections: fallbackAdmin.homepageSections,
+          auditLogs: fallbackAdmin.auditLogs,
+          activeView: "dashboard",
+          loginPassword: "",
+          statusMessage: "Signed in with the local test admin profile. Backend fallback mode is active.",
+        }));
+        return;
+      }
+
       setState((current) => ({
         ...current,
-        apiBaseUrl,
-        adminToken: authData.adminToken,
-        adminUserId: authData.adminUserId,
-        identity: fallbackAdmin.identity,
-        overview: fallbackAdmin.overview,
-        adminUsers: fallbackAdmin.adminUsers,
-        fallback: true,
-        mode: "fallback",
-        statusMessage: `Using seeded demo data. ${error.message}`,
+        isLoading: false,
+        isAuthenticated: false,
+        loginError: error.message,
+        statusMessage: "Login failed. Check your username/email and password.",
       }));
     }
-
-    await loadInventory(apiBaseUrl, authData);
-    await loadOperationsData(apiBaseUrl, authData);
   }
 
-  useEffect(() => {
-    loadDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  async function refreshDashboard() {
+    setState((current) => ({ ...current, isLoading: true }));
+    try {
+      await loadDashboard(state.apiBaseUrl.trim(), auth);
+    } catch (error) {
+      setStatus(`Refresh failed. ${error.message}`);
+    } finally {
+      setState((current) => ({ ...current, isLoading: false }));
+    }
+  }
+
+  function handleLogout() {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(storageKey);
+    }
+
+    setState((current) => ({
+      ...initialState,
+      apiBaseUrl: current.apiBaseUrl,
+      statusMessage: "You have been logged out.",
+    }));
+  }
 
   async function submitMovie(event) {
     event.preventDefault();
@@ -297,6 +575,12 @@ export default function Page() {
     const selectedMovieFiles = !state.movieEditId ? state.selectedMovieFileIds : [];
 
     try {
+      setState((current) => ({
+        ...current,
+        composerSubmitting: true,
+        composerFeedback: "Saving movie...",
+        composerFeedbackTone: "neutral",
+      }));
       const method = state.movieEditId ? "PATCH" : "POST";
       const path = state.movieEditId ? `/admin/movies/${state.movieEditId}` : "/admin/movies";
       const response = await fetchJson(
@@ -323,25 +607,22 @@ export default function Page() {
         );
       }
 
-      setState((current) => ({
-        ...current,
-        movieForm: initialState.movieForm,
-        selectedMovieFileIds: initialState.selectedMovieFileIds,
-        movieFileSearch: initialState.movieFileSearch,
-        movieFilePickerOpen: false,
-        movieEditId: null,
-        audioFileSearch: initialState.audioFileSearch,
-        audioFilePickerOpen: false,
-        mode: "live",
+      resetComposerState({
         statusMessage: state.movieEditId
           ? "Movie updated successfully."
           : selectedMovieFiles.length
-            ? "Movie created and existing content files attached successfully."
+            ? "Movie created and selected files attached."
             : "Movie created successfully.",
-      }));
-      await loadDashboard();
+      });
+      await refreshDashboard();
     } catch (error) {
-      setMode(state.fallback ? "fallback" : "live", `Movie save failed. ${error.message}`);
+      setState((current) => ({
+        ...current,
+        composerSubmitting: false,
+        composerFeedback: `Movie save failed. ${error.message}`,
+        composerFeedbackTone: "danger",
+      }));
+      setStatus(`Movie save failed. ${error.message}`);
     }
   }
 
@@ -354,9 +635,22 @@ export default function Page() {
     const selectedAudioFiles = !state.audioEditId ? state.selectedAudioFileIds : [];
 
     try {
+      setState((current) => ({
+        ...current,
+        composerSubmitting: true,
+        composerFeedback: "Saving audio...",
+        composerFeedbackTone: "neutral",
+      }));
       const method = state.audioEditId ? "PATCH" : "POST";
       const path = state.audioEditId ? `/admin/audio/${state.audioEditId}` : "/admin/audio";
-      const response = await fetchJson(state.apiBaseUrl, path, { method, body: JSON.stringify(payload) }, true, auth);
+      const response = await fetchJson(
+        state.apiBaseUrl,
+        path,
+        { method, body: JSON.stringify(payload) },
+        true,
+        auth
+      );
+
       for (const contentFileId of selectedAudioFiles) {
         await fetchJson(
           state.apiBaseUrl,
@@ -372,23 +666,23 @@ export default function Page() {
           auth
         );
       }
+
+      resetComposerState({
+        statusMessage: state.audioEditId
+          ? "Audio updated successfully."
+          : selectedAudioFiles.length
+            ? "Audio created and selected files attached."
+            : "Audio created successfully.",
+      });
+      await refreshDashboard();
+    } catch (error) {
       setState((current) => ({
         ...current,
-        audioForm: initialState.audioForm,
-        selectedAudioFileIds: initialState.selectedAudioFileIds,
-        audioFileSearch: initialState.audioFileSearch,
-        audioFilePickerOpen: false,
-        audioEditId: null,
-        mode: "live",
-        statusMessage: state.audioEditId
-          ? "Audio item updated successfully."
-          : selectedAudioFiles.length
-            ? "Audio item created and existing content files attached successfully."
-            : "Audio item created successfully.",
+        composerSubmitting: false,
+        composerFeedback: `Audio save failed. ${error.message}`,
+        composerFeedbackTone: "danger",
       }));
-      await loadDashboard();
-    } catch (error) {
-      setMode(state.fallback ? "fallback" : "live", `Audio save failed. ${error.message}`);
+      setStatus(`Audio save failed. ${error.message}`);
     }
   }
 
@@ -400,19 +694,84 @@ export default function Page() {
     };
 
     try {
+      setState((current) => ({
+        ...current,
+        composerSubmitting: true,
+        composerFeedback: "Saving content file...",
+        composerFeedbackTone: "neutral",
+      }));
       const method = state.fileEditId ? "PATCH" : "POST";
       const path = state.fileEditId ? `/admin/content-files/${state.fileEditId}` : "/admin/content-files";
       await fetchJson(state.apiBaseUrl, path, { method, body: JSON.stringify(payload) }, true, auth);
+      resetComposerState({
+        statusMessage: state.fileEditId
+          ? "Content file updated successfully."
+          : "Content file created successfully.",
+      });
+      await refreshDashboard();
+    } catch (error) {
       setState((current) => ({
         ...current,
-        fileForm: initialState.fileForm,
-        fileEditId: null,
-        mode: "live",
-        statusMessage: state.fileEditId ? "Content file updated successfully." : "Content file attached successfully.",
+        composerSubmitting: false,
+        composerFeedback: `Content file save failed. ${error.message}`,
+        composerFeedbackTone: "danger",
       }));
-      await loadDashboard();
+      setStatus(`Content file save failed. ${error.message}`);
+    }
+  }
+
+  async function submitHomepageSection(event) {
+    event.preventDefault();
+    const payload = {
+      title: state.homepageSectionForm.title,
+      slug:
+        state.homepageSectionForm.slug || slugify(state.homepageSectionForm.title || ""),
+      sort_order: Number(state.homepageSectionForm.sort_order || 0),
+      is_active: Boolean(state.homepageSectionForm.is_active),
+      config: {
+        content_type: state.homepageSectionForm.content_type,
+        sort: state.homepageSectionForm.sort,
+        limit: Number(state.homepageSectionForm.limit || 12),
+        language: state.homepageSectionForm.language || null,
+        genre: state.homepageSectionForm.genre || null,
+        query: state.homepageSectionForm.query || null,
+      },
+    };
+
+    try {
+      setState((current) => ({
+        ...current,
+        composerSubmitting: true,
+        composerFeedback: current.homepageSectionEditId
+          ? "Updating homepage carousel..."
+          : "Creating homepage carousel...",
+        composerFeedbackTone: "neutral",
+      }));
+      const method = state.homepageSectionEditId ? "PATCH" : "POST";
+      const path = state.homepageSectionEditId
+        ? `/admin/homepage-sections/${state.homepageSectionEditId}`
+        : "/admin/homepage-sections";
+      await fetchJson(state.apiBaseUrl, path, { method, body: JSON.stringify(payload) }, true, auth);
+      setState((current) => ({
+        ...current,
+        composerSubmitting: false,
+        composerFeedback: "",
+        composerFeedbackTone: "neutral",
+        homepageSectionForm: initialHomepageSectionForm,
+        homepageSectionEditId: null,
+        statusMessage: state.homepageSectionEditId
+          ? "Homepage carousel updated successfully."
+          : "Homepage carousel created successfully.",
+      }));
+      await refreshDashboard();
     } catch (error) {
-      setMode(state.fallback ? "fallback" : "live", `Content file save failed. ${error.message}`);
+      setState((current) => ({
+        ...current,
+        composerSubmitting: false,
+        composerFeedback: `Homepage carousel save failed. ${error.message}`,
+        composerFeedbackTone: "danger",
+      }));
+      setStatus(`Homepage carousel save failed. ${error.message}`);
     }
   }
 
@@ -434,36 +793,50 @@ export default function Page() {
       );
       setState((current) => ({
         ...current,
-        pointsForm: initialState.pointsForm,
-        mode: "live",
+        pointsForm: initialPointsForm,
         statusMessage: "Point adjustment applied.",
       }));
-      await loadDashboard();
+      await refreshDashboard();
     } catch (error) {
-      setMode(state.fallback ? "fallback" : "live", `Point adjustment failed. ${error.message}`);
+      setStatus(`Point adjustment failed. ${error.message}`);
     }
   }
 
   async function archiveInventoryItem(type, id) {
-    const path = type === "movie" ? `/admin/movies/${id}` : `/admin/audio/${id}`;
-    await fetchJson(state.apiBaseUrl, path, { method: "DELETE" }, true, auth);
-    await loadDashboard();
+    try {
+      const path = type === "movie" ? `/admin/movies/${id}` : `/admin/audio/${id}`;
+      await fetchJson(state.apiBaseUrl, path, { method: "DELETE" }, true, auth);
+      setStatus(`${type === "movie" ? "Movie" : "Audio"} archived.`);
+      await refreshDashboard();
+    } catch (error) {
+      setStatus(`Archive failed. ${error.message}`);
+    }
   }
 
   async function deactivateContentFile(id) {
-    await fetchJson(state.apiBaseUrl, `/admin/content-files/${id}`, { method: "DELETE" }, true, auth);
-    await loadDashboard();
+    try {
+      await fetchJson(state.apiBaseUrl, `/admin/content-files/${id}`, { method: "DELETE" }, true, auth);
+      setStatus("Content file deactivated.");
+      await refreshDashboard();
+    } catch (error) {
+      setStatus(`Content file deactivation failed. ${error.message}`);
+    }
   }
 
   async function updatePlatformUserBanState(userId, isBanned) {
-    await fetchJson(
-      state.apiBaseUrl,
-      `/admin/platform-users/${userId}`,
-      { method: "PATCH", body: JSON.stringify({ is_banned: isBanned }) },
-      true,
-      auth
-    );
-    await loadDashboard();
+    try {
+      await fetchJson(
+        state.apiBaseUrl,
+        `/admin/platform-users/${userId}`,
+        { method: "PATCH", body: JSON.stringify({ is_banned: isBanned }) },
+        true,
+        auth
+      );
+      setStatus(isBanned ? "User banned." : "User unbanned.");
+      await refreshDashboard();
+    } catch (error) {
+      setStatus(`User moderation failed. ${error.message}`);
+    }
   }
 
   function permissionPills(user) {
@@ -475,34 +848,59 @@ export default function Page() {
     return permissions.length ? permissions : ["Limited"];
   }
 
+  function openComposer(tab = "movie") {
+    setState((current) => ({
+      ...current,
+      showComposer: true,
+      activeComposerTab: tab,
+      showProfileMenu: false,
+    }));
+  }
+
+  function startEditHomepageSection(section) {
+    setState((current) => ({
+      ...current,
+      activeView: "contents",
+      homepageSectionEditId: section.id,
+      homepageSectionForm: {
+        title: section.title || "",
+        slug: section.slug || "",
+        sort_order: section.sort_order ?? 0,
+        is_active: section.is_active ?? true,
+        content_type: section.config?.content_type || "movie",
+        sort: section.config?.sort || "featured",
+        limit: section.config?.limit ?? 12,
+        language: section.config?.language || "",
+        genre: section.config?.genre || "",
+        query: section.config?.query || "",
+      },
+    }));
+  }
+
   function startEditInventory(item) {
     setState((current) => ({
       ...current,
-      activeScreen: "publishing",
-      activeForm: item.content_type === "movie" ? "movie" : "audio",
-      movieEditId: item.content_type === "movie" ? item.id : current.movieEditId,
-      audioEditId: item.content_type === "audio" ? item.id : current.audioEditId,
+      showComposer: true,
+      activeComposerTab: item.content_type === "movie" ? "movie" : "audio",
+      activeView: "contents",
+      movieEditId: item.content_type === "movie" ? item.id : null,
+      audioEditId: item.content_type === "audio" ? item.id : null,
+      fileEditId: null,
       movieForm:
         item.content_type === "movie"
           ? {
-              ...current.movieForm,
+              ...initialMovieForm,
               title: item.title || "",
               slug: item.slug || "",
               release_year: item.release_year || "",
               language: item.language || "",
               publication_status: item.state || "draft",
             }
-          : current.movieForm,
-      selectedMovieFileIds:
-        item.content_type === "movie" ? initialState.selectedMovieFileIds : current.selectedMovieFileIds,
-      movieFileSearch:
-        item.content_type === "movie" ? initialState.movieFileSearch : current.movieFileSearch,
-      movieFilePickerOpen:
-        item.content_type === "movie" ? initialState.movieFilePickerOpen : current.movieFilePickerOpen,
+          : initialMovieForm,
       audioForm:
         item.content_type === "audio"
           ? {
-              ...current.audioForm,
+              ...initialAudioForm,
               title: item.title || "",
               slug: item.slug || "",
               artist: item.artist || "",
@@ -510,21 +908,24 @@ export default function Page() {
               language: item.language || "",
               publication_status: item.state || "draft",
             }
-          : current.audioForm,
-      selectedAudioFileIds:
-        item.content_type === "audio" ? initialState.selectedAudioFileIds : current.selectedAudioFileIds,
-      audioFileSearch:
-        item.content_type === "audio" ? initialState.audioFileSearch : current.audioFileSearch,
-      audioFilePickerOpen:
-        item.content_type === "audio" ? initialState.audioFilePickerOpen : current.audioFilePickerOpen,
+          : initialAudioForm,
+      selectedMovieFileIds: [],
+      selectedAudioFileIds: [],
+      movieFileSearch: "",
+      audioFileSearch: "",
+      movieFilePickerOpen: false,
+      audioFilePickerOpen: false,
     }));
   }
 
   function startEditFile(file) {
     setState((current) => ({
       ...current,
-      activeScreen: "publishing",
-      activeForm: "file",
+      showComposer: true,
+      activeComposerTab: "file",
+      activeView: "contents",
+      movieEditId: null,
+      audioEditId: null,
       fileEditId: file.id,
       fileForm: {
         content_kind: file.content_kind || "movie",
@@ -560,684 +961,1513 @@ export default function Page() {
   }
 
   function selectedMovieFilesLabel() {
-    if (!state.selectedMovieFileIds.length) {
-      return "Choose downloadable files";
-    }
-
+    if (!state.selectedMovieFileIds.length) return "Choose downloadable files";
     if (state.selectedMovieFileIds.length === 1) {
       const selectedFile = contentFiles.find((file) => file.id === state.selectedMovieFileIds[0]);
       return selectedFile?.label || selectedFile?.storage_key || "1 file selected";
     }
-
     return `${state.selectedMovieFileIds.length} files selected`;
   }
 
   function selectedAudioFilesLabel() {
-    if (!state.selectedAudioFileIds.length) {
-      return "Choose downloadable files";
-    }
-
+    if (!state.selectedAudioFileIds.length) return "Choose downloadable files";
     if (state.selectedAudioFileIds.length === 1) {
       const selectedFile = contentFiles.find((file) => file.id === state.selectedAudioFileIds[0]);
       return selectedFile?.label || selectedFile?.storage_key || "1 file selected";
     }
-
     return `${state.selectedAudioFileIds.length} files selected`;
   }
 
-  return (
-    <div className="admin-shell">
-      <header className="masthead">
-        <div className="masthead-copy">
-          <p className="eyebrow">Operations console</p>
-          <h1>IMB Admin</h1>
-          <p className="masthead-text">
-            Publishing, moderation, rewards, and visibility in clearer operational lanes.
-          </p>
-        </div>
-        <div className="masthead-status">
-          <div className="status-chip">
-            <span className="status-dot" />
-            <strong>{state.mode === "fallback" ? "Fallback mode" : state.mode === "live" ? "Live API" : "Booting"}</strong>
-          </div>
-          <p className="status-message">{state.statusMessage || "Checking API reachability and loading admin context."}</p>
-        </div>
-      </header>
+  function renderAttachableFiles(kind) {
+    const isMovie = kind === "movie";
+    const searchValue = isMovie ? state.movieFileSearch : state.audioFileSearch;
+    const pickerOpen = isMovie ? state.movieFilePickerOpen : state.audioFilePickerOpen;
+    const selectedIds = isMovie ? state.selectedMovieFileIds : state.selectedAudioFileIds;
+    const files = isMovie ? filteredMovieAttachableFiles : filteredAudioAttachableFiles;
+    const label = isMovie ? selectedMovieFilesLabel() : selectedAudioFilesLabel();
+    const toggleItem = isMovie ? toggleMovieContentFile : toggleAudioContentFile;
 
-      <section className="auth-band">
-        <label className="field wide">
-          <span>API base</span>
-          <input value={state.apiBaseUrl} onChange={(e) => setState((c) => ({ ...c, apiBaseUrl: e.target.value }))} />
-        </label>
-        <label className="field">
-          <span>Admin token</span>
-          <input
-            placeholder="Bearer token"
-            type="password"
-            value={state.adminToken}
-            onChange={(e) => setState((c) => ({ ...c, adminToken: e.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span>Admin user UUID</span>
-          <input value={state.adminUserId} onChange={(e) => setState((c) => ({ ...c, adminUserId: e.target.value }))} />
-        </label>
-        <div className="auth-actions">
-          <button className="primary-button" onClick={loadDashboard} type="button">
-            Connect
+    return (
+      <section className="composer-subpanel">
+        <div className="panel-intro">
+          <p className="eyebrow">Downloadable files</p>
+          <h3>{isMovie ? "Attach files to this movie" : "Attach files to this audio item"}</h3>
+        </div>
+        <div className="file-picker">
+          <button
+            className="file-picker-trigger"
+            onClick={() =>
+              setState((current) => ({
+                ...current,
+                [isMovie ? "movieFilePickerOpen" : "audioFilePickerOpen"]: !pickerOpen,
+              }))
+            }
+            type="button"
+          >
+            <span>{label}</span>
+            <strong>{pickerOpen ? "Close" : "Browse"}</strong>
           </button>
-          <button className="secondary-button" onClick={loadDashboard} type="button">
-            Refresh
-          </button>
+
+          {!!selectedIds.length && (
+            <div className="selected-chip-row">
+              {selectedIds.map((fileId) => {
+                const selectedFile = contentFiles.find((file) => file.id === fileId);
+                if (!selectedFile) return null;
+                return (
+                  <button
+                    className="selected-chip"
+                    key={fileId}
+                    onClick={() => toggleItem(fileId)}
+                    type="button"
+                  >
+                    <span>{selectedFile.label || selectedFile.storage_key}</span>
+                    <strong>Remove</strong>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {pickerOpen && (
+            <div className="file-picker-dropdown">
+              <label className="field">
+                <span>Search files</span>
+                <input
+                  placeholder="Search by label, quality, format, or storage key"
+                  value={searchValue}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      [isMovie ? "movieFileSearch" : "audioFileSearch"]: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+
+              <div className="file-picker-options">
+                {files.length ? (
+                  files.map((file) => (
+                    <label className="download-file-card selectable-file-card" key={file.id}>
+                      <div className="download-file-head">
+                        <strong>{file.label || file.storage_key}</strong>
+                        <input
+                          checked={selectedIds.includes(file.id)}
+                          type="checkbox"
+                          onChange={() => toggleItem(file.id)}
+                        />
+                      </div>
+                      <div className="download-file-meta">
+                        <span>{file.quality || file.format || "Standard"}</span>
+                        <span>{file.points_cost} pts</span>
+                        <span>{file.delivery_mode}</span>
+                        <span>{file.storage_provider}</span>
+                        <span>
+                          {file.assignment_state === "attached"
+                            ? `Attached to ${file.assignment_label || file.content_kind}`
+                            : "Unassigned"}
+                        </span>
+                      </div>
+                      <p className="mono">{file.storage_key}</p>
+                    </label>
+                  ))
+                ) : (
+                  <p className="empty-state">
+                    {contentFiles.length
+                      ? "No content files matched that search."
+                      : "No content files are available yet. Add them first."}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </section>
+    );
+  }
 
-      <main className="admin-grid">
-        <aside className="sidebar">
-          <section className="panel sidebar-panel">
-            <div className="identity-card">
-              <div className="identity-panel">
-                <p className="eyebrow">Signed in</p>
-                <h3>{identity.telegram_username || "Unknown admin"}</h3>
-                <p className="mono">{identity.user_id}</p>
-                <div className="badge-row">
-                  <span className="badge">{identity.role}</span>
-                  <span className="badge is-muted">{identity.telegram_user_id || "No Telegram ID"}</span>
-                </div>
+  function renderDashboardView() {
+    return (
+      <section className="dashboard-grid">
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Snapshot</p>
+              <h2>Operations at a glance</h2>
+            </div>
+          </div>
+          <section className="metrics-grid">
+            <article className="metric-card">
+              <span>Published movies</span>
+              <strong>{metrics.published_movies}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Published audio</span>
+              <strong>{metrics.published_audio}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Download sessions</span>
+              <strong>{metrics.download_sessions}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Verified ads</span>
+              <strong>{metrics.verified_ad_events}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Total users</span>
+              <strong>{metrics.total_users}</strong>
+            </article>
+          </section>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Team</p>
+              <h2>Admin users</h2>
+            </div>
+          </div>
+          <div className="admin-list">
+            {adminUsers.map((user) => (
+              <article className="admin-row" key={user.user_id}>
+                <h3>@{user.telegram_username || "unknown"}</h3>
+                <p>{user.role}</p>
                 <div className="permission-row">
-                  {permissionPills(identity).map((permission) => (
-                    <span className="permission-pill" key={permission}>
+                  {permissionPills(user).map((permission) => (
+                    <span className="permission-pill" key={`${user.user_id}-${permission}`}>
                       {permission}
                     </span>
                   ))}
                 </div>
-              </div>
-            </div>
-          </section>
-
-          <nav className="sidebar-nav panel" aria-label="Admin sections">
-            {[
-              ["overview", "Overview"],
-              ["catalog", "Catalog"],
-              ["users", "Users"],
-              ["publishing", "Publishing"],
-              ["audit", "Audit"],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                className={`sidebar-link ${state.activeScreen === value ? "is-active" : ""}`}
-                onClick={() => setState((current) => ({ ...current, activeScreen: value }))}
-                type="button"
-              >
-                {label}
-              </button>
+              </article>
             ))}
-          </nav>
+          </div>
+        </section>
 
-          <section className="panel">
-            <div className="panel-head">
-              <div>
-                <p className="eyebrow">Team access</p>
-                <h2>Admin roles</h2>
-              </div>
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">State</p>
+              <h2>Connection summary</h2>
             </div>
-            <div className="admin-list">
-              {adminUsers.map((user) => (
-                <article className="admin-row" key={user.user_id}>
-                  <h3>{user.telegram_username || "Unnamed admin"}</h3>
-                  <p className="mono">{user.user_id}</p>
-                  <div className="permission-row">
-                    {permissionPills(user).map((permission) => (
-                      <span className="permission-pill" key={permission}>
-                        {permission}
-                      </span>
-                    ))}
-                  </div>
-                </article>
+          </div>
+          <div className="admin-list">
+            <article className="admin-row">
+              <h3>{state.fallback ? "Fallback mode" : "Live mode"}</h3>
+              <p>{state.fallback ? "Using seeded admin data." : "Connected to the backend API."}</p>
+            </article>
+            <article className="admin-row">
+              <h3>Current operator</h3>
+              <p>@{identity.telegram_username || "admin"}</p>
+              <p className="mono">{identity.user_id}</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Recent activity</p>
+              <h2>Latest audit events</h2>
+            </div>
+          </div>
+          <div className="audit-list">
+            {auditLogs.slice(0, 4).map((log) => (
+              <article className="audit-row" key={log.id}>
+                <h3>{log.action}</h3>
+                <p>
+                  {log.entity_type}
+                  {log.entity_id ? ` | ${log.entity_id}` : ""}
+                </p>
+                <p className="mono">
+                  {log.actor_user_id || "system"} | {new Date(log.created_at).toLocaleString()}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  function renderAnalyticsView() {
+    return (
+      <section className="dashboard-grid">
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Analytics</p>
+              <h2>Core platform metrics</h2>
+            </div>
+          </div>
+          <section className="metrics-grid">
+            <article className="metric-card">
+              <span>Published movies</span>
+              <strong>{metrics.published_movies}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Published audio</span>
+              <strong>{metrics.published_audio}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Download sessions</span>
+              <strong>{metrics.download_sessions}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Verified ads</span>
+              <strong>{metrics.verified_ad_events}</strong>
+            </article>
+            <article className="metric-card">
+              <span>Total users</span>
+              <strong>{metrics.total_users}</strong>
+            </article>
+          </section>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Interpretation</p>
+              <h2>What this means</h2>
+            </div>
+          </div>
+          <div className="admin-list">
+            <article className="admin-row">
+              <h3>Catalog health</h3>
+              <p>Published counts show how much active inventory is visible to users.</p>
+            </article>
+            <article className="admin-row">
+              <h3>Reward activity</h3>
+              <p>Verified ads indicate successful unlock completions, not just impressions.</p>
+            </article>
+            <article className="admin-row">
+              <h3>Demand pulse</h3>
+              <p>Download sessions reflect current user interest in movies and audio files.</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Audit</p>
+              <h2>Analytics-linked activity trail</h2>
+            </div>
+          </div>
+          <div className="audit-list">
+            {auditLogs.map((log) => (
+              <article className="audit-row" key={log.id}>
+                <h3>{log.action}</h3>
+                <p>
+                  {log.entity_type}
+                  {log.entity_id ? ` | ${log.entity_id}` : ""}
+                </p>
+                <p className="mono">
+                  {log.actor_user_id || "system"} | {new Date(log.created_at).toLocaleString()}
+                </p>
+              </article>
+            ))}
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  function renderContentsView() {
+    return (
+      <section className="dashboard-grid">
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Content</p>
+              <h2>Published inventory</h2>
+            </div>
+            <div className="panel-controls">
+              <label className="field inline-field">
+                <span>Filter</span>
+                <select
+                  value={state.inventoryType}
+                  onChange={(event) =>
+                    setState((current) => ({ ...current, inventoryType: event.target.value }))
+                  }
+                >
+                  <option value="all">All</option>
+                  <option value="movie">Movies</option>
+                  <option value="audio">Audio</option>
+                </select>
+              </label>
+              <label className="field inline-field search-inline">
+                <span>Search</span>
+                <input
+                  placeholder="Title or slug"
+                  value={state.inventoryQuery}
+                  onChange={(event) =>
+                    setState((current) => ({ ...current, inventoryQuery: event.target.value }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Slug</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {normalizedInventory.map((item) => (
+                  <tr key={`${item.content_type}-${item.id}`}>
+                    <td>{item.title}</td>
+                    <td>{item.content_type}</td>
+                    <td>{item.state}</td>
+                    <td className="mono">{item.slug}</td>
+                    <td className="action-cell">
+                      <button className="mini-button" onClick={() => startEditInventory(item)} type="button">
+                        Edit
+                      </button>
+                      <button
+                        className="mini-button is-danger"
+                        onClick={() => archiveInventoryItem(item.content_type, item.id)}
+                        type="button"
+                      >
+                        Archive
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Files</p>
+              <h2>Downloadable assets</h2>
+            </div>
+            <button className="secondary-button" onClick={() => openComposer("file")} type="button">
+              Add content file
+            </button>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Kind</th>
+                  <th>Quality</th>
+                  <th>Assignment</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {contentFiles.map((file) => (
+                  <tr key={file.id}>
+                    <td>{file.label || file.storage_key}</td>
+                    <td>{file.content_kind}</td>
+                    <td>{file.quality || file.format || "Standard"}</td>
+                    <td>{file.assignment_state === "attached" ? file.assignment_label || "Attached" : "Unassigned"}</td>
+                    <td className="action-cell">
+                      <button className="mini-button" onClick={() => startEditFile(file)} type="button">
+                        Edit
+                      </button>
+                      <button
+                        className="mini-button is-danger"
+                        onClick={() => deactivateContentFile(file.id)}
+                        type="button"
+                      >
+                        Disable
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Homepage</p>
+              <h2>Editable category carousels</h2>
+            </div>
+          </div>
+
+          <div className="homepage-sections-layout">
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>Rule</th>
+                    <th>Status</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {homepageSections.map((section) => (
+                    <tr key={section.id}>
+                      <td>{section.title}</td>
+                      <td>{section.config?.content_type || "movie"}</td>
+                      <td className="mono">
+                        {section.config?.query
+                          ? `search:${section.config.query}`
+                          : `${section.config?.sort || "latest"} | ${section.config?.language || "all"}`}
+                      </td>
+                      <td>{section.is_active ? "Active" : "Hidden"}</td>
+                      <td className="action-cell">
+                        <button
+                          className="mini-button"
+                          onClick={() => startEditHomepageSection(section)}
+                          type="button"
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <form className="editor-form homepage-editor-form" onSubmit={submitHomepageSection}>
+              <div className="panel-intro">
+                <p className="eyebrow">Carousel editor</p>
+                <h3>
+                  {state.homepageSectionEditId ? "Update homepage row" : "Create homepage row"}
+                </h3>
+              </div>
+              <div className="form-grid">
+                <label className="field">
+                  <span>Title</span>
+                  <input
+                    required
+                    value={state.homepageSectionForm.title}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          title: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Slug</span>
+                  <input
+                    value={state.homepageSectionForm.slug}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          slug: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Content type</span>
+                  <select
+                    value={state.homepageSectionForm.content_type}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          content_type: event.target.value,
+                        },
+                      }))
+                    }
+                  >
+                    <option value="movie">Movie</option>
+                    <option value="series">Series</option>
+                    <option value="audio">Audio</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Sort</span>
+                  <select
+                    value={state.homepageSectionForm.sort}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          sort: event.target.value,
+                        },
+                      }))
+                    }
+                  >
+                    <option value="featured">Featured</option>
+                    <option value="latest">Latest</option>
+                    <option value="popular">Popular</option>
+                    <option value="title">Title</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Limit</span>
+                  <input
+                    min="1"
+                    type="number"
+                    value={state.homepageSectionForm.limit}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          limit: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Sort order</span>
+                  <input
+                    type="number"
+                    value={state.homepageSectionForm.sort_order}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          sort_order: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Language</span>
+                  <input
+                    placeholder="eg ko"
+                    value={state.homepageSectionForm.language}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          language: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Genre</span>
+                  <input
+                    placeholder="optional genre slug"
+                    value={state.homepageSectionForm.genre}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          genre: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Search rule</span>
+                  <input
+                    placeholder="optional query like kdrama"
+                    value={state.homepageSectionForm.query}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          query: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field toggle-field">
+                  <span>Active</span>
+                  <input
+                    checked={state.homepageSectionForm.is_active}
+                    type="checkbox"
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        homepageSectionForm: {
+                          ...current.homepageSectionForm,
+                          is_active: event.target.checked,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+              <div className="form-actions">
+                <button className="primary-button" disabled={state.composerSubmitting} type="submit">
+                  {state.composerSubmitting
+                    ? "Saving..."
+                    : state.homepageSectionEditId
+                      ? "Update carousel"
+                      : "Create carousel"}
+                </button>
+                <button
+                  className="secondary-button"
+                  onClick={() =>
+                    setState((current) => ({
+                      ...current,
+                      homepageSectionForm: initialHomepageSectionForm,
+                      homepageSectionEditId: null,
+                      composerFeedback: "",
+                      composerFeedbackTone: "neutral",
+                    }))
+                  }
+                  type="button"
+                >
+                  Reset
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  function renderUsersView() {
+    return (
+      <section className="dashboard-grid">
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Team</p>
+              <h2>Admin users</h2>
+            </div>
+          </div>
+          <div className="admin-list">
+            {adminUsers.map((user) => (
+              <article className="admin-row" key={user.user_id}>
+                <h3>@{user.telegram_username || "unknown"}</h3>
+                <p>{user.role}</p>
+                <div className="permission-row">
+                  {permissionPills(user).map((permission) => (
+                    <span className="permission-pill" key={`${user.user_id}-${permission}`}>
+                      {permission}
+                    </span>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Users</p>
+              <h2>Moderation and points</h2>
+            </div>
+          </div>
+          <div className="user-stack">
+            {platformUsers.map((user) => (
+              <article className="admin-row" key={user.user_id}>
+                <h3>@{user.telegram_username || "unknown"}</h3>
+                <p>{user.points_balance} points</p>
+                <div className="badge-row">
+                  <span className={`badge ${user.is_banned ? "is-danger" : "is-muted"}`}>
+                    {user.is_banned ? "Banned" : "Active"}
+                  </span>
+                </div>
+                <div className="action-row">
+                  <button
+                    className="mini-button"
+                    onClick={() => updatePlatformUserBanState(user.user_id, !user.is_banned)}
+                    type="button"
+                  >
+                    {user.is_banned ? "Unban" : "Ban"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Rewards</p>
+              <h2>Manual point adjustment</h2>
+            </div>
+          </div>
+          <form className="compact-form" onSubmit={submitPointsAdjustment}>
+            <div className="form-grid">
+              <label className="field">
+                <span>User id</span>
+                <input
+                  required
+                  value={state.pointsForm.user_id}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      pointsForm: { ...current.pointsForm, user_id: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>Amount</span>
+                <input
+                  required
+                  type="number"
+                  value={state.pointsForm.amount}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      pointsForm: { ...current.pointsForm, amount: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>Reason</span>
+                <input
+                  required
+                  value={state.pointsForm.reason}
+                  onChange={(event) =>
+                    setState((current) => ({
+                      ...current,
+                      pointsForm: { ...current.pointsForm, reason: event.target.value },
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <button className="primary-button" type="submit">
+              Apply points
+            </button>
+          </form>
+        </section>
+      </section>
+    );
+  }
+
+  function renderSettingsView() {
+    return (
+      <section className="dashboard-grid">
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Session</p>
+              <h2>Connection settings</h2>
+            </div>
+          </div>
+          <div className="admin-list">
+            <article className="admin-row">
+              <h3>API base URL</h3>
+              <p className="mono">{state.apiBaseUrl}</p>
+            </article>
+            <article className="admin-row">
+              <h3>Admin user id</h3>
+              <p className="mono">{state.adminUserId}</p>
+            </article>
+            <article className="admin-row">
+              <h3>Mode</h3>
+              <p>{state.fallback ? "Fallback demo mode" : "Live backend mode"}</p>
+            </article>
+            <article className="admin-row">
+              <h3>Session persistence</h3>
+              <p>Your admin session now survives page refreshes on this browser.</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Permissions</p>
+              <h2>Current operator scope</h2>
+            </div>
+          </div>
+          <div className="permission-row">
+            {permissionPills(identity).map((permission) => (
+              <span className="permission-pill" key={permission}>
+                {permission}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Operator actions</p>
+              <h2>Session controls</h2>
+            </div>
+          </div>
+          <div className="action-row">
+            <button className="secondary-button" onClick={refreshDashboard} type="button">
+              Refresh admin data
+            </button>
+            <button
+              className="secondary-button"
+              onClick={() => setState((current) => ({ ...current, activeView: "contents" }))}
+              type="button"
+            >
+              Go to contents
+            </button>
+            <button className="primary-button" onClick={handleLogout} type="button">
+              Logout now
+            </button>
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  function renderProfileView() {
+    return (
+      <section className="dashboard-grid">
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Profile</p>
+              <h2>Admin identity</h2>
+            </div>
+          </div>
+          <div className="admin-list">
+            <article className="admin-row">
+              <h3>Username</h3>
+              <p>@{identity.telegram_username || "admin"}</p>
+            </article>
+            <article className="admin-row">
+              <h3>Role</h3>
+              <p>{identity.role}</p>
+            </article>
+            <article className="admin-row">
+              <h3>User id</h3>
+              <p className="mono">{identity.user_id}</p>
+            </article>
+            <article className="admin-row">
+              <h3>Telegram id</h3>
+              <p className="mono">{identity.telegram_user_id || "Not linked"}</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Access</p>
+              <h2>Permission breakdown</h2>
+            </div>
+          </div>
+          <div className="permission-row">
+            {permissionPills(identity).map((permission) => (
+              <span className="permission-pill" key={permission}>
+                {permission}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Operator summary</p>
+              <h2>How this account is being used</h2>
+            </div>
+          </div>
+          <div className="admin-list">
+            <article className="admin-row">
+              <h3>Current mode</h3>
+              <p>{state.fallback ? "Fallback demo session" : "Live backend session"}</p>
+            </article>
+            <article className="admin-row">
+              <h3>Preferred login</h3>
+              <p>Username or email with password, then the app stores the session locally.</p>
+            </article>
+            <article className="admin-row">
+              <h3>Best next action</h3>
+              <p>Use the `Add` button or jump to `Contents` to manage titles and downloadable files.</p>
+            </article>
+          </div>
+        </section>
+      </section>
+    );
+  }
+
+  function renderActiveView() {
+    switch (state.activeView) {
+      case "analytics":
+        return renderAnalyticsView();
+      case "contents":
+        return renderContentsView();
+      case "users":
+        return renderUsersView();
+      case "settings":
+        return renderSettingsView();
+      case "profile":
+        return renderProfileView();
+      default:
+        return renderDashboardView();
+    }
+  }
+
+  if (!state.isAuthenticated) {
+    return (
+      <div className="auth-shell">
+        <section className="auth-card">
+          <div className="auth-brand">
+            <p className="eyebrow">Admin access</p>
+            <h1>IMB Admin Station</h1>
+            <p className="auth-copy">
+              Sign in with the current admin login flow so we can open the operator dashboard.
+            </p>
+          </div>
+
+          <form className="auth-form" onSubmit={handleLogin}>
+            <label className="field">
+              <span>Username or email</span>
+              <input
+                required
+                value={state.loginIdentifier}
+                onChange={(event) =>
+                  setState((current) => ({ ...current, loginIdentifier: event.target.value }))
+                }
+              />
+            </label>
+            <label className="field">
+              <span>Password</span>
+              <input
+                required
+                type="password"
+                value={state.loginPassword}
+                onChange={(event) =>
+                  setState((current) => ({ ...current, loginPassword: event.target.value }))
+                }
+              />
+            </label>
+
+            <div className="auth-footer">
+              <button className="primary-button auth-submit" disabled={state.isLoading} type="submit">
+                {state.isLoading ? "Signing in..." : "Login"}
+              </button>
+              <p className="status-message">{state.statusMessage}</p>
+              <p className="status-message">
+                Test login: <span className="mono">imb_admin</span> / <span className="mono">admin12345</span>
+              </p>
+              {state.loginError ? <p className="error-message">{state.loginError}</p> : null}
+            </div>
+          </form>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="dashboard-shell">
+      <header className="topbar">
+        <div className="topbar-side topbar-side-left">
+          <button className="menu-trigger" type="button" aria-label="Open menu">
+            <span />
+            <span />
+            <span />
+          </button>
+          <span className="topbar-divider" />
+          <div className="brand-lockup">
+            <div className="brand-mark">IMB</div>
+            <div>
+              <p className="eyebrow">Admin</p>
+              <strong>Control Room</strong>
+            </div>
+          </div>
+        </div>
+
+        <nav className="topbar-nav" aria-label="Primary">
+          {topNavItems.map(([value, label]) => (
+            <button
+              className={`topbar-link ${state.activeView === value ? "is-active" : ""}`}
+              key={value}
+              onClick={() => setState((current) => ({ ...current, activeView: value, showProfileMenu: false }))}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="topbar-side topbar-side-right">
+          <button
+            className="profile-button"
+            onClick={() =>
+              setState((current) => ({ ...current, showProfileMenu: !current.showProfileMenu }))
+            }
+            type="button"
+          >
+            <span className="profile-avatar">
+              {(identity.telegram_username || "A").slice(0, 1).toUpperCase()}
+            </span>
+            <span className="profile-text">@{identity.telegram_username || "admin"}</span>
+            <span className="profile-caret">▾</span>
+          </button>
+
+          {state.showProfileMenu && (
+            <div className="profile-menu">
+              {profileMenuItems.map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() =>
+                    setState((current) => ({
+                      ...current,
+                      activeView: value,
+                      showProfileMenu: false,
+                    }))
+                  }
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+              <button onClick={handleLogout} type="button">
+                Logout
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      <main className="dashboard-main">
+        <section className="dashboard-intro">
+          <div>
+            <p className="eyebrow">{state.activeView}</p>
+            <h1>Hi {identity.telegram_username || "Admin"}</h1>
+            <p className="status-message">{dashboardSubtitle(state.activeView)}</p>
+            <p className="status-message">{state.statusMessage}</p>
+          </div>
+          <div className="intro-actions">
+            <button className="secondary-button" onClick={refreshDashboard} type="button">
+              {state.isLoading ? "Refreshing..." : "Refresh"}
+            </button>
+            <button className="primary-button" onClick={() => openComposer("movie")} type="button">
+              Add
+            </button>
+          </div>
+        </section>
+
+        {renderActiveView()}
+      </main>
+
+      {state.showComposer && (
+        <div className="modal-overlay" onClick={() => resetComposerState()}>
+          <section className="composer-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="composer-head">
+              <div>
+                <p className="eyebrow">Create content</p>
+                <h2>
+                  {state.movieEditId || state.audioEditId || state.fileEditId
+                    ? "Edit item"
+                    : "Add new item"}
+                </h2>
+              </div>
+              <button className="close-button" onClick={() => resetComposerState()} type="button">
+                Close
+              </button>
+            </div>
+
+            <div className="composer-tabs">
+              {[
+                ["movie", "Movie"],
+                ["audio", "Audio"],
+                ["file", "Content file"],
+              ].map(([value, label]) => (
+                <button
+                  className={`composer-tab ${state.activeComposerTab === value ? "is-active" : ""}`}
+                  key={value}
+                  onClick={() => setState((current) => ({ ...current, activeComposerTab: value }))}
+                  type="button"
+                >
+                  {label}
+                </button>
               ))}
             </div>
-          </section>
-        </aside>
 
-        <section className="workspace">
-          {state.activeScreen === "overview" && (
-            <section className="workspace-screen is-active">
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Overview</p>
-                    <h2>Operational snapshot</h2>
-                  </div>
-                  <p className="meta-line">Updated {new Date().toLocaleString()}</p>
+            <div className="composer-body">
+              {state.composerFeedback ? (
+                <div className={`composer-feedback is-${state.composerFeedbackTone}`}>
+                  {state.composerFeedback}
                 </div>
-                <div className="metrics-grid">
-                  {[
-                    ["Published movies", metrics.published_movies],
-                    ["Published audio", metrics.published_audio],
-                    ["Download sessions", metrics.download_sessions],
-                    ["Verified ads", metrics.verified_ad_events],
-                    ["Total users", metrics.total_users],
-                  ].map(([label, value]) => (
-                    <article className="metric-tile" key={label}>
-                      <span>{label}</span>
-                      <strong>{value}</strong>
-                    </article>
-                  ))}
-                </div>
-              </section>
+              ) : null}
 
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Recent activity</p>
-                    <h2>Audit stream</h2>
-                  </div>
-                </div>
-                <div className="audit-list">
-                  {auditLogs.map((log) => (
-                    <article className="audit-row" key={log.id}>
-                      <h3>{log.action}</h3>
-                      <p>{log.entity_type}{log.entity_id ? ` | ${log.entity_id}` : ""}</p>
-                      <p className="mono">{log.actor_user_id || "system"} | {new Date(log.created_at).toLocaleString()}</p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            </section>
-          )}
-
-          {state.activeScreen === "catalog" && (
-            <section className="workspace-screen is-active">
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Catalog</p>
-                    <h2>Published inventory</h2>
-                  </div>
-                  <div className="panel-controls">
-                    <label className="field compact-field">
-                      <span>Filter</span>
+              {state.activeComposerTab === "movie" && (
+                <form className="editor-form" onSubmit={submitMovie}>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Title</span>
                       <input
-                        placeholder="Search titles"
-                        value={state.inventoryQuery}
-                        onChange={(e) => setState((c) => ({ ...c, inventoryQuery: e.target.value }))}
+                        required
+                        value={state.movieForm.title}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            movieForm: { ...current.movieForm, title: event.target.value },
+                          }))
+                        }
                       />
                     </label>
-                    <label className="field compact-field">
-                      <span>Type</span>
+                    <label className="field">
+                      <span>Slug</span>
+                      <input
+                        value={state.movieForm.slug}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            movieForm: { ...current.movieForm, slug: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Year</span>
+                      <input
+                        type="number"
+                        value={state.movieForm.release_year}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            movieForm: { ...current.movieForm, release_year: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Language</span>
+                      <input
+                        value={state.movieForm.language}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            movieForm: { ...current.movieForm, language: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Status</span>
                       <select
-                        value={state.inventoryType}
-                        onChange={(e) => setState((c) => ({ ...c, inventoryType: e.target.value }))}
+                        value={state.movieForm.publication_status}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            movieForm: { ...current.movieForm, publication_status: event.target.value },
+                          }))
+                        }
                       >
-                        <option value="all">All</option>
-                        <option value="movie">Movies</option>
-                        <option value="audio">Audio</option>
+                        <option value="draft">Draft</option>
+                        <option value="published">Published</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Duration</span>
+                      <input
+                        type="number"
+                        value={state.movieForm.duration_minutes}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            movieForm: { ...current.movieForm, duration_minutes: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <label className="field">
+                    <span>Synopsis</span>
+                    <textarea
+                      rows="4"
+                      value={state.movieForm.synopsis}
+                      onChange={(event) =>
+                        setState((current) => ({
+                          ...current,
+                          movieForm: { ...current.movieForm, synopsis: event.target.value },
+                        }))
+                      }
+                    />
+                  </label>
+                  {!state.movieEditId ? renderAttachableFiles("movie") : null}
+                  <div className="form-actions">
+                    <button className="primary-button" disabled={state.composerSubmitting} type="submit">
+                      {state.composerSubmitting ? "Saving..." : "Save movie"}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {state.activeComposerTab === "audio" && (
+                <form className="editor-form" onSubmit={submitAudio}>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Title</span>
+                      <input
+                        required
+                        value={state.audioForm.title}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            audioForm: { ...current.audioForm, title: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Slug</span>
+                      <input
+                        value={state.audioForm.slug}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            audioForm: { ...current.audioForm, slug: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Artist</span>
+                      <input
+                        value={state.audioForm.artist}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            audioForm: { ...current.audioForm, artist: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Album</span>
+                      <input
+                        value={state.audioForm.album}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            audioForm: { ...current.audioForm, album: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Language</span>
+                      <input
+                        value={state.audioForm.language}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            audioForm: { ...current.audioForm, language: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Status</span>
+                      <select
+                        value={state.audioForm.publication_status}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            audioForm: { ...current.audioForm, publication_status: event.target.value },
+                          }))
+                        }
+                      >
+                        <option value="draft">Draft</option>
+                        <option value="published">Published</option>
                       </select>
                     </label>
                   </div>
-                </div>
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Title</th>
-                        <th>Type</th>
-                        <th>Year</th>
-                        <th>Slug</th>
-                        <th>State</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {normalizedInventory.map((item) => (
-                        <tr key={`${item.content_type}-${item.id}`}>
-                          <td>{item.title}</td>
-                          <td><span className="badge is-muted">{item.content_type}</span></td>
-                          <td>{item.release_year || "Audio"}</td>
-                          <td className="mono">{item.slug}</td>
-                          <td><span className="badge">{item.state || "published"}</span></td>
-                          <td>
-                            <div className="action-row">
-                              <button className="mini-button" onClick={() => startEditInventory(item)} type="button">Edit</button>
-                              <button className="mini-button is-danger" onClick={() => archiveInventoryItem(item.content_type, item.id)} type="button">Archive</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Delivery</p>
-                    <h2>Content files</h2>
-                  </div>
-                </div>
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Label</th>
-                        <th>Kind</th>
-                        <th>Assigned</th>
-                        <th>Quality</th>
-                        <th>Points</th>
-                        <th>State</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {contentFiles.map((item) => (
-                        <tr key={item.id}>
-                          <td>{item.label || "Untitled file"}</td>
-                          <td><span className="badge is-muted">{item.content_kind}</span></td>
-                          <td>{item.assignment_state === "attached" ? item.assignment_label || "Attached" : "Unassigned"}</td>
-                          <td>{item.quality || item.format || "Standard"}</td>
-                          <td>{item.points_cost}</td>
-                          <td><span className={`badge ${item.is_active === false ? "is-muted" : ""}`}>{item.is_active === false ? "inactive" : "active"}</span></td>
-                          <td>
-                            <div className="action-row">
-                              <button className="mini-button" onClick={() => startEditFile(item)} type="button">Edit</button>
-                              <button className="mini-button is-danger" onClick={() => deactivateContentFile(item.id)} type="button">Disable</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </section>
-          )}
-
-          {state.activeScreen === "users" && (
-            <section className="workspace-screen is-active">
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Users</p>
-                    <h2>Platform users</h2>
-                  </div>
-                </div>
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Telegram</th>
-                        <th>Role</th>
-                        <th>Points</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {platformUsers.map((user) => (
-                        <tr key={user.user_id}>
-                          <td>
-                            <strong>{user.telegram_username || "Unknown user"}</strong>
-                            <div className="mono">{user.user_id}</div>
-                          </td>
-                          <td><span className="badge is-muted">{user.role}</span></td>
-                          <td>{user.points_balance}</td>
-                          <td><span className={`badge ${user.is_banned ? "is-muted" : ""}`}>{user.is_banned ? "banned" : "active"}</span></td>
-                          <td>
-                            <div className="action-row">
-                              <button
-                                className="mini-button"
-                                onClick={() =>
-                                  setState((current) => ({
-                                    ...current,
-                                    pointsForm: { ...current.pointsForm, user_id: user.user_id },
-                                  }))
-                                }
-                                type="button"
-                              >
-                                Adjust points
-                              </button>
-                              <button
-                                className={`mini-button ${user.is_banned ? "" : "is-danger"}`}
-                                onClick={() => updatePlatformUserBanState(user.user_id, !user.is_banned)}
-                                type="button"
-                              >
-                                {user.is_banned ? "Unban" : "Ban"}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <section className="panel accent-panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Rewards</p>
-                    <h2>Manual point adjustment</h2>
-                  </div>
-                </div>
-                <form className="editor-form is-active compact-form" onSubmit={submitPointsAdjustment}>
                   <label className="field">
-                    <span>User UUID</span>
-                    <input
-                      required
-                      value={state.pointsForm.user_id}
-                      onChange={(e) => setState((c) => ({ ...c, pointsForm: { ...c.pointsForm, user_id: e.target.value } }))}
+                    <span>Synopsis</span>
+                    <textarea
+                      rows="4"
+                      value={state.audioForm.synopsis}
+                      onChange={(event) =>
+                        setState((current) => ({
+                          ...current,
+                          audioForm: { ...current.audioForm, synopsis: event.target.value },
+                        }))
+                      }
                     />
                   </label>
-                  <label className="field">
-                    <span>Amount</span>
-                    <input
-                      required
-                      type="number"
-                      value={state.pointsForm.amount}
-                      onChange={(e) => setState((c) => ({ ...c, pointsForm: { ...c.pointsForm, amount: e.target.value } }))}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Reason</span>
-                    <input
-                      required
-                      value={state.pointsForm.reason}
-                      onChange={(e) => setState((c) => ({ ...c, pointsForm: { ...c.pointsForm, reason: e.target.value } }))}
-                    />
-                  </label>
+                  {!state.audioEditId ? renderAttachableFiles("audio") : null}
                   <div className="form-actions">
-                    <button className="primary-button" type="submit">Apply adjustment</button>
+                    <button className="primary-button" disabled={state.composerSubmitting} type="submit">
+                      {state.composerSubmitting ? "Saving..." : "Save audio"}
+                    </button>
                   </div>
                 </form>
-              </section>
-            </section>
-          )}
+              )}
 
-          {state.activeScreen === "publishing" && (
-            <section className="workspace-screen is-active">
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Publishing</p>
-                    <h2>Create or update content</h2>
-                  </div>
-                  <div className="panel-controls">
-                    {[
-                      ["movie", "Movie"],
-                      ["audio", "Audio"],
-                      ["file", "Content file"],
-                    ].map(([value, label]) => (
-                      <button
-                        key={value}
-                        className={`segment ${state.activeForm === value ? "is-active" : ""}`}
-                        onClick={() => setState((current) => ({ ...current, activeForm: value }))}
-                        type="button"
+              {state.activeComposerTab === "file" && (
+                <form className="editor-form" onSubmit={submitFile}>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Content kind</span>
+                      <select
+                        value={state.fileForm.content_kind}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, content_kind: event.target.value },
+                          }))
+                        }
                       >
-                        {label}
-                      </button>
-                    ))}
+                        <option value="movie">Movie</option>
+                        <option value="audio">Audio</option>
+                        <option value="series">Series</option>
+                        <option value="episode">Episode</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Content UUID</span>
+                      <input
+                        required
+                        value={state.fileForm.content_id}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, content_id: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Label</span>
+                      <input
+                        value={state.fileForm.label}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, label: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Quality</span>
+                      <input
+                        value={state.fileForm.quality}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, quality: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Format</span>
+                      <input
+                        value={state.fileForm.format}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, format: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Storage provider</span>
+                      <select
+                        value={state.fileForm.storage_provider}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, storage_provider: event.target.value },
+                          }))
+                        }
+                      >
+                        <option value="r2">r2</option>
+                        <option value="b2">b2</option>
+                        <option value="s3">s3</option>
+                        <option value="other">other</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Storage key</span>
+                      <input
+                        required
+                        value={state.fileForm.storage_key}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, storage_key: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Points cost</span>
+                      <input
+                        type="number"
+                        value={state.fileForm.points_cost}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, points_cost: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Delivery mode</span>
+                      <select
+                        value={state.fileForm.delivery_mode}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, delivery_mode: event.target.value },
+                          }))
+                        }
+                      >
+                        <option value="telegram_bot">telegram_bot</option>
+                        <option value="telegram_channel">telegram_channel</option>
+                        <option value="external_link">external_link</option>
+                      </select>
+                    </label>
+                    <label className="field toggle-field">
+                      <span>Requires ad</span>
+                      <input
+                        checked={state.fileForm.requires_ad}
+                        type="checkbox"
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            fileForm: { ...current.fileForm, requires_ad: event.target.checked },
+                          }))
+                        }
+                      />
+                    </label>
                   </div>
-                </div>
-
-                <div className="forms-stack">
-                  {state.activeForm === "movie" && (
-                    <form className="editor-form is-active" onSubmit={submitMovie}>
-                      <div className="form-grid">
-                        <label className="field"><span>Title</span><input required value={state.movieForm.title} onChange={(e) => setState((c) => ({ ...c, movieForm: { ...c.movieForm, title: e.target.value } }))} /></label>
-                        <label className="field"><span>Slug</span><input value={state.movieForm.slug} onChange={(e) => setState((c) => ({ ...c, movieForm: { ...c.movieForm, slug: e.target.value } }))} /></label>
-                        <label className="field"><span>Year</span><input type="number" value={state.movieForm.release_year} onChange={(e) => setState((c) => ({ ...c, movieForm: { ...c.movieForm, release_year: e.target.value } }))} /></label>
-                        <label className="field"><span>Language</span><input value={state.movieForm.language} onChange={(e) => setState((c) => ({ ...c, movieForm: { ...c.movieForm, language: e.target.value } }))} /></label>
-                        <label className="field"><span>Status</span><select value={state.movieForm.publication_status} onChange={(e) => setState((c) => ({ ...c, movieForm: { ...c.movieForm, publication_status: e.target.value } }))}><option value="draft">Draft</option><option value="published">Published</option></select></label>
-                        <label className="field"><span>Duration</span><input type="number" value={state.movieForm.duration_minutes} onChange={(e) => setState((c) => ({ ...c, movieForm: { ...c.movieForm, duration_minutes: e.target.value } }))} /></label>
-                      </div>
-                      <label className="field"><span>Synopsis</span><textarea rows="4" value={state.movieForm.synopsis} onChange={(e) => setState((c) => ({ ...c, movieForm: { ...c.movieForm, synopsis: e.target.value } }))} /></label>
-                      {!state.movieEditId && (
-                        <section className="panel accent-panel nested-panel">
-                          <div className="panel-head">
-                            <div>
-                              <p className="eyebrow">Downloadable files</p>
-                              <h2>Choose existing files for this movie</h2>
-                            </div>
-                          </div>
-                          <div className="file-picker">
-                            <button
-                              className="file-picker-trigger"
-                              onClick={() =>
-                                setState((current) => ({
-                                  ...current,
-                                  movieFilePickerOpen: !current.movieFilePickerOpen,
-                                }))
-                              }
-                              type="button"
-                            >
-                              <span>{selectedMovieFilesLabel()}</span>
-                              <strong>{state.movieFilePickerOpen ? "Close" : "Browse"}</strong>
-                            </button>
-
-                            {!!state.selectedMovieFileIds.length && (
-                              <div className="selected-chip-row">
-                                {state.selectedMovieFileIds.map((fileId) => {
-                                  const selectedFile = contentFiles.find((file) => file.id === fileId);
-                                  if (!selectedFile) return null;
-                                  return (
-                                    <button
-                                      className="selected-chip"
-                                      key={fileId}
-                                      onClick={() => toggleMovieContentFile(fileId)}
-                                      type="button"
-                                    >
-                                      <span>{selectedFile.label || selectedFile.storage_key}</span>
-                                      <strong>Remove</strong>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {state.movieFilePickerOpen && (
-                              <div className="file-picker-dropdown">
-                                <label className="field">
-                                  <span>Search files</span>
-                                  <input
-                                    placeholder="Search by label, quality, format, or storage key"
-                                    value={state.movieFileSearch}
-                                    onChange={(e) =>
-                                      setState((c) => ({ ...c, movieFileSearch: e.target.value }))
-                                    }
-                                  />
-                                </label>
-
-                                <div className="file-picker-options">
-                                  {filteredMovieAttachableFiles.length ? (
-                                    filteredMovieAttachableFiles.map((file) => (
-                                      <label className="download-file-card selectable-file-card" key={file.id}>
-                                        <div className="download-file-head">
-                                          <strong>{file.label || file.storage_key}</strong>
-                                          <input
-                                            checked={state.selectedMovieFileIds.includes(file.id)}
-                                            type="checkbox"
-                                            onChange={() => toggleMovieContentFile(file.id)}
-                                          />
-                                        </div>
-                                        <div className="download-file-meta">
-                                          <span>{file.quality || file.format || "Standard"}</span>
-                                          <span>{file.points_cost} pts</span>
-                                          <span>{file.delivery_mode}</span>
-                                          <span>{file.storage_provider}</span>
-                                          <span>{file.assignment_state === "attached" ? `Attached to ${file.assignment_label || file.content_kind}` : "Unassigned"}</span>
-                                        </div>
-                                        <p className="mono">{file.storage_key}</p>
-                                      </label>
-                                    ))
-                                  ) : (
-                                    <p className="empty-state">
-                                      {contentFiles.length
-                                        ? "No content files matched that search."
-                                        : "No content files are available yet. Add them in the content files section first."}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </section>
-                      )}
-                      <div className="form-actions"><button className="primary-button" type="submit">Save movie</button></div>
-                    </form>
-                  )}
-
-                  {state.activeForm === "audio" && (
-                    <form className="editor-form is-active" onSubmit={submitAudio}>
-                      <div className="form-grid">
-                        <label className="field"><span>Title</span><input required value={state.audioForm.title} onChange={(e) => setState((c) => ({ ...c, audioForm: { ...c.audioForm, title: e.target.value } }))} /></label>
-                        <label className="field"><span>Slug</span><input value={state.audioForm.slug} onChange={(e) => setState((c) => ({ ...c, audioForm: { ...c.audioForm, slug: e.target.value } }))} /></label>
-                        <label className="field"><span>Artist</span><input value={state.audioForm.artist} onChange={(e) => setState((c) => ({ ...c, audioForm: { ...c.audioForm, artist: e.target.value } }))} /></label>
-                        <label className="field"><span>Album</span><input value={state.audioForm.album} onChange={(e) => setState((c) => ({ ...c, audioForm: { ...c.audioForm, album: e.target.value } }))} /></label>
-                        <label className="field"><span>Language</span><input value={state.audioForm.language} onChange={(e) => setState((c) => ({ ...c, audioForm: { ...c.audioForm, language: e.target.value } }))} /></label>
-                        <label className="field"><span>Status</span><select value={state.audioForm.publication_status} onChange={(e) => setState((c) => ({ ...c, audioForm: { ...c.audioForm, publication_status: e.target.value } }))}><option value="draft">Draft</option><option value="published">Published</option></select></label>
-                      </div>
-                      <label className="field"><span>Synopsis</span><textarea rows="4" value={state.audioForm.synopsis} onChange={(e) => setState((c) => ({ ...c, audioForm: { ...c.audioForm, synopsis: e.target.value } }))} /></label>
-                      {!state.audioEditId && (
-                        <section className="panel accent-panel nested-panel">
-                          <div className="panel-head">
-                            <div>
-                              <p className="eyebrow">Downloadable files</p>
-                              <h2>Choose existing files for this audio item</h2>
-                            </div>
-                          </div>
-                          <div className="file-picker">
-                            <button
-                              className="file-picker-trigger"
-                              onClick={() =>
-                                setState((current) => ({
-                                  ...current,
-                                  audioFilePickerOpen: !current.audioFilePickerOpen,
-                                }))
-                              }
-                              type="button"
-                            >
-                              <span>{selectedAudioFilesLabel()}</span>
-                              <strong>{state.audioFilePickerOpen ? "Close" : "Browse"}</strong>
-                            </button>
-
-                            {!!state.selectedAudioFileIds.length && (
-                              <div className="selected-chip-row">
-                                {state.selectedAudioFileIds.map((fileId) => {
-                                  const selectedFile = contentFiles.find((file) => file.id === fileId);
-                                  if (!selectedFile) return null;
-                                  return (
-                                    <button
-                                      className="selected-chip"
-                                      key={fileId}
-                                      onClick={() => toggleAudioContentFile(fileId)}
-                                      type="button"
-                                    >
-                                      <span>{selectedFile.label || selectedFile.storage_key}</span>
-                                      <strong>Remove</strong>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {state.audioFilePickerOpen && (
-                              <div className="file-picker-dropdown">
-                                <label className="field">
-                                  <span>Search files</span>
-                                  <input
-                                    placeholder="Search by label, quality, format, or storage key"
-                                    value={state.audioFileSearch}
-                                    onChange={(e) =>
-                                      setState((c) => ({ ...c, audioFileSearch: e.target.value }))
-                                    }
-                                  />
-                                </label>
-
-                                <div className="file-picker-options">
-                                  {filteredAudioAttachableFiles.length ? (
-                                    filteredAudioAttachableFiles.map((file) => (
-                                      <label className="download-file-card selectable-file-card" key={file.id}>
-                                        <div className="download-file-head">
-                                          <strong>{file.label || file.storage_key}</strong>
-                                          <input
-                                            checked={state.selectedAudioFileIds.includes(file.id)}
-                                            type="checkbox"
-                                            onChange={() => toggleAudioContentFile(file.id)}
-                                          />
-                                        </div>
-                                        <div className="download-file-meta">
-                                          <span>{file.quality || file.format || "Standard"}</span>
-                                          <span>{file.points_cost} pts</span>
-                                          <span>{file.delivery_mode}</span>
-                                          <span>{file.storage_provider}</span>
-                                          <span>{file.assignment_state === "attached" ? `Attached to ${file.assignment_label || file.content_kind}` : "Unassigned"}</span>
-                                        </div>
-                                        <p className="mono">{file.storage_key}</p>
-                                      </label>
-                                    ))
-                                  ) : (
-                                    <p className="empty-state">
-                                      {contentFiles.length
-                                        ? "No content files matched that search."
-                                        : "No content files are available yet. Add them in the content files section first."}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </section>
-                      )}
-                      <div className="form-actions"><button className="primary-button" type="submit">Save audio</button></div>
-                    </form>
-                  )}
-
-                  {state.activeForm === "file" && (
-                    <form className="editor-form is-active" onSubmit={submitFile}>
-                      <div className="form-grid">
-                        <label className="field"><span>Content kind</span><select value={state.fileForm.content_kind} onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, content_kind: e.target.value } }))}><option value="movie">Movie</option><option value="audio">Audio</option><option value="series">Series</option><option value="episode">Episode</option></select></label>
-                        <label className="field"><span>Content UUID</span><input required value={state.fileForm.content_id} onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, content_id: e.target.value } }))} /></label>
-                        <label className="field"><span>Label</span><input value={state.fileForm.label} onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, label: e.target.value } }))} /></label>
-                        <label className="field"><span>Quality</span><input value={state.fileForm.quality} onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, quality: e.target.value } }))} /></label>
-                        <label className="field"><span>Format</span><input value={state.fileForm.format} onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, format: e.target.value } }))} /></label>
-                        <label className="field"><span>Storage provider</span><select value={state.fileForm.storage_provider} onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, storage_provider: e.target.value } }))}><option value="r2">r2</option><option value="b2">b2</option><option value="s3">s3</option><option value="other">other</option></select></label>
-                        <label className="field"><span>Storage key</span><input required value={state.fileForm.storage_key} onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, storage_key: e.target.value } }))} /></label>
-                        <label className="field"><span>Points cost</span><input type="number" value={state.fileForm.points_cost} onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, points_cost: e.target.value } }))} /></label>
-                        <label className="field"><span>Delivery mode</span><select value={state.fileForm.delivery_mode} onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, delivery_mode: e.target.value } }))}><option value="telegram_bot">telegram_bot</option><option value="telegram_channel">telegram_channel</option><option value="external_link">external_link</option></select></label>
-                        <label className="field toggle-field"><span>Requires ad</span><input checked={state.fileForm.requires_ad} type="checkbox" onChange={(e) => setState((c) => ({ ...c, fileForm: { ...c.fileForm, requires_ad: e.target.checked } }))} /></label>
-                      </div>
-                      <div className="form-actions"><button className="primary-button" type="submit">Save content file</button></div>
-                    </form>
-                  )}
-                </div>
-              </section>
-            </section>
-          )}
-
-          {state.activeScreen === "audit" && (
-            <section className="workspace-screen is-active">
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Audit</p>
-                    <h2>Operational event trail</h2>
+                  <div className="form-actions">
+                    <button className="primary-button" disabled={state.composerSubmitting} type="submit">
+                      {state.composerSubmitting ? "Saving..." : "Save content file"}
+                    </button>
                   </div>
-                </div>
-                <div className="audit-list">
-                  {auditLogs.map((log) => (
-                    <article className="audit-row" key={log.id}>
-                      <h3>{log.action}</h3>
-                      <p>{log.entity_type}{log.entity_id ? ` | ${log.entity_id}` : ""}</p>
-                      <p className="mono">{log.actor_user_id || "system"} | {new Date(log.created_at).toLocaleString()}</p>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            </section>
-          )}
-        </section>
-      </main>
+                </form>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

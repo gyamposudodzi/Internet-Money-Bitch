@@ -1,6 +1,17 @@
 from pydantic import BaseModel
 
 
+class AdminLoginRequest(BaseModel):
+    identifier: str
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    admin_user_id: str
+
+
 class AdminIdentityResponse(BaseModel):
     user_id: str
     telegram_user_id: int | None = None
@@ -65,6 +76,22 @@ class AdminAuditLogSummary(BaseModel):
     entity_id: str | None = None
     metadata: dict
     created_at: str
+
+
+class AdminHomepageSectionCreateRequest(BaseModel):
+    title: str
+    slug: str
+    sort_order: int = 0
+    is_active: bool = True
+    config: dict = {}
+
+
+class AdminHomepageSectionUpdateRequest(BaseModel):
+    title: str | None = None
+    slug: str | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
+    config: dict | None = None
 
 
 class AdminMovieCreateRequest(BaseModel):
@@ -197,3 +224,12 @@ class AdminContentFileSummary(BaseModel):
     requires_ad: bool
     points_cost: int
     is_active: bool
+
+
+class AdminHomepageSectionSummary(BaseModel):
+    id: str
+    title: str
+    slug: str
+    sort_order: int
+    is_active: bool
+    config: dict

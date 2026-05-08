@@ -1,26 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
+import { SiteHeader } from "../components/site-header";
 import { fallbackCatalog } from "../lib/fallback-catalog";
+import { hrefForItem } from "../lib/catalog-data";
+
+const storageKey = "imb-web-session";
 
 const initialState = {
   apiBaseUrl: "http://localhost:8000/api/v1",
-  userId: "22222222-2222-2222-2222-222222222222",
-  pointsBalance: 30,
+  userId: "",
+  telegramUserId: "",
+  telegramUsername: "",
+  telegramLinked: false,
+  pointsBalance: 0,
+  homeSections: [],
   featuredItems: [],
   movieItems: [],
   audioItems: [],
-  activeSection: "featured",
+  featuredHeroIndex: 0,
+  isHeroPaused: false,
+  activeSection: "movies",
   activeView: "discover",
   activeDetailPanel: "overview",
   activeItem: null,
+  activeItemRef: null,
   activeFileId: null,
   activeSession: null,
   usingFallback: false,
   searchQuery: "",
   sortFilter: "featured",
   typeFilter: "all",
+  pageStatus: "Loading the catalog.",
+  pageStatusTone: "neutral",
+  isRefreshing: false,
+  sessionBusy: false,
+  sessionFeedback: "",
+  sessionFeedbackTone: "neutral",
 };
 
 function formatBytes(bytes) {
@@ -38,7 +56,7 @@ function formatBytes(bytes) {
 function backgroundImage(url) {
   if (!url) return undefined;
   return {
-    backgroundImage: `linear-gradient(180deg, rgba(12,18,20,0.08), rgba(12,18,20,0.82)), url("${url}")`,
+    backgroundImage: `url("${url}")`,
   };
 }
 
@@ -67,81 +85,164 @@ async function fetchJson(baseUrl, path, options = {}) {
   return response.json();
 }
 
+function subtitleForView(activeView) {
+  switch (activeView) {
+    case "unlock":
+      return "Move from file selection to Telegram delivery without losing context.";
+    case "wallet":
+      return "Track the points that let regular users skip ad steps when they have earned enough.";
+    default:
+      return "Browse the catalog first, then unlock files only when the user is ready.";
+  }
+}
+
+function extractTelegramContext(searchParams) {
+  const userId = searchParams.get("user_id")?.trim() || "";
+  const telegramUserId = searchParams.get("telegram_user_id")?.trim() || "";
+  const telegramUsername = searchParams.get("telegram_username")?.trim() || "";
+  const pointsRaw = searchParams.get("points");
+  const pointsBalance = pointsRaw !== null ? Number(pointsRaw) : null;
+
+  const telegramLinked = Boolean(userId || telegramUserId || telegramUsername);
+  if (!telegramLinked) return null;
+
+  return {
+    userId,
+    telegramUserId,
+    telegramUsername,
+    telegramLinked: true,
+    pointsBalance: Number.isFinite(pointsBalance) ? Math.max(0, pointsBalance) : 0,
+  };
+}
+
+function subtitleForSection(activeSection) {
+  switch (activeSection) {
+    case "series":
+      return "Browse long-form stories and return to Telegram only when the user is ready to unlock.";
+    case "anime":
+      return "Anime can live in its own lane even before the backend has a dedicated feed for it.";
+    case "cartoons":
+      return "Cartoons get their own shelf so family-friendly or animated content does not feel buried.";
+    default:
+      return "Browse movie drops first, then unlock files only when the user is ready.";
+  }
+}
+
 export default function Page() {
   const [state, setState] = useState(initialState);
+  const discoverSections = state.usingFallback ? fallbackCatalog.home.sections : state.homeSections;
 
-  const activeCollections =
-    state.activeSection === "movies"
-      ? state.movieItems
-      : state.activeSection === "audio"
-        ? state.audioItems
-        : state.featuredItems;
+  const allItems = useMemo(
+    () =>
+      mergeUniqueItems(
+        discoverSections.flatMap((section) => section.items || []),
+        state.featuredItems,
+        state.movieItems,
+        state.audioItems
+      ),
+    [discoverSections, state.featuredItems, state.movieItems, state.audioItems]
+  );
 
-  const allItems = mergeUniqueItems(state.featuredItems, state.movieItems, state.audioItems);
-  const hero = state.featuredItems[0] || state.movieItems[0] || state.audioItems[0] || null;
+  const activeCollections = useMemo(() => {
+    if (state.activeSection === "movies") return state.movieItems;
+    if (state.activeSection === "series") {
+      return allItems.filter((item) => item.content_type === "series");
+    }
+    if (state.activeSection === "anime") {
+      return allItems.filter((item) => {
+        const title = item.title?.toLowerCase() || "";
+        return title.includes("anime");
+      });
+    }
+    if (state.activeSection === "cartoons") {
+      return allItems.filter((item) => {
+        const title = item.title?.toLowerCase() || "";
+        return title.includes("cartoon");
+      });
+    }
+    return state.movieItems;
+  }, [allItems, state.activeSection, state.movieItems]);
+
+  const hero =
+    activeCollections[0] ||
+    discoverSections[0]?.items?.[0] ||
+    state.featuredItems[0] ||
+    state.movieItems[0] ||
+    state.audioItems[0] ||
+    null;
+  const featuredStageItems =
+    discoverSections[0]?.items?.length
+      ? discoverSections[0].items
+      : activeCollections.length
+        ? activeCollections.slice(0, 6)
+        : allItems.slice(0, 6);
+  const featuredHero =
+    featuredStageItems.length
+      ? featuredStageItems[((state.featuredHeroIndex % featuredStageItems.length) + featuredStageItems.length) % featuredStageItems.length]
+      : hero;
   const selectedFiles = state.activeItem?.files || [];
   const selectedFile =
     selectedFiles.find((file) => file.id === state.activeFileId) || selectedFiles[0] || null;
 
-  async function loadCollections() {
-    const apiBaseUrl = state.apiBaseUrl.trim();
-    try {
-      const [homeResponse, moviesResponse, audioResponse] = await Promise.all([
-        fetchJson(apiBaseUrl, "/home"),
-        fetchJson(apiBaseUrl, `/movies?sort=${encodeURIComponent(state.sortFilter)}`),
-        fetchJson(apiBaseUrl, "/audio"),
-      ]);
+  function persistState(current) {
+    if (typeof window === "undefined") return;
 
-      const featuredItems = (homeResponse.data.sections || []).flatMap((section) => section.items || []);
-      const movieItems = moviesResponse.data || [];
-      const audioItems = audioResponse.data || [];
+    const payload = {
+      apiBaseUrl: current.apiBaseUrl,
+      userId: current.userId,
+      telegramUserId: current.telegramUserId,
+      telegramUsername: current.telegramUsername,
+      telegramLinked: current.telegramLinked,
+      pointsBalance: current.pointsBalance,
+      homeSections: current.homeSections,
+      featuredHeroIndex: current.featuredHeroIndex,
+      isHeroPaused: current.isHeroPaused,
+      activeSection: current.activeSection,
+      activeView: current.activeView,
+      activeDetailPanel: current.activeDetailPanel,
+      activeFileId: current.activeFileId,
+      activeSession: current.activeSession,
+      searchQuery: current.searchQuery,
+      sortFilter: current.sortFilter,
+      typeFilter: current.typeFilter,
+      activeItemRef: current.activeItem
+        ? { slug: current.activeItem.slug, content_type: current.activeItem.content_type }
+        : current.activeItemRef,
+    };
 
-      const firstItem =
-        state.activeItem ||
-        mergeUniqueItems(featuredItems, movieItems, audioItems)[0] ||
-        null;
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+  }
 
-      setState((current) => ({
-        ...current,
-        apiBaseUrl,
-        userId: current.userId.trim(),
-        usingFallback: false,
-        featuredItems,
-        movieItems,
-        audioItems,
-      }));
+  function applyFallbackCollections(apiBaseUrl, savedRef = null) {
+    const homeSections = fallbackCatalog.home.sections;
+    const featuredItems = homeSections.flatMap((section) => section.items || []);
+    const movieItems = fallbackCatalog.movies;
+    const audioItems = fallbackCatalog.audio;
+    const merged = mergeUniqueItems(featuredItems, movieItems, audioItems);
+    const firstItem = merged[0] || null;
+    const restored =
+      savedRef && merged.find((item) => item.slug === savedRef.slug && item.content_type === savedRef.content_type);
 
-      if (!state.activeItem && firstItem) {
-        await selectItem(firstItem, { usingFallback: false, apiBaseUrl });
-      }
-    } catch (error) {
-      const featuredItems = fallbackCatalog.home.sections.flatMap((section) => section.items || []);
-      const movieItems = fallbackCatalog.movies;
-      const audioItems = fallbackCatalog.audio;
-      const firstItem =
-        state.activeItem ||
-        mergeUniqueItems(featuredItems, movieItems, audioItems)[0] ||
-        null;
+    setState((current) => ({
+      ...current,
+      apiBaseUrl,
+      usingFallback: true,
+      homeSections,
+      featuredItems,
+      movieItems,
+      audioItems,
+      pageStatus: "Using fallback catalog data because the live API is unavailable.",
+      pageStatusTone: "warning",
+    }));
 
-      setState((current) => ({
-        ...current,
-        apiBaseUrl,
-        userId: current.userId.trim(),
-        usingFallback: true,
-        featuredItems,
-        movieItems,
-        audioItems,
-      }));
-
-      if (!state.activeItem && firstItem) {
-        await selectItem(firstItem, { usingFallback: true, apiBaseUrl });
-      }
-    }
+    return restored || firstItem;
   }
 
   async function loadItemDetails(item, options = {}) {
     const usingFallback = options.usingFallback ?? state.usingFallback;
     const apiBaseUrl = options.apiBaseUrl ?? state.apiBaseUrl;
+
+    if (!item) return null;
 
     if (usingFallback) {
       if (item.content_type === "audio") return fallbackCatalog.audioDetails[item.slug];
@@ -161,15 +262,91 @@ export default function Page() {
   }
 
   async function selectItem(item, options = {}) {
-    const detailedItem = await loadItemDetails(item, options);
+    if (!item) return;
+
+    try {
+      const detailedItem = await loadItemDetails(item, options);
+      setState((current) => {
+        const nextState = {
+          ...current,
+          activeItem: detailedItem,
+          activeItemRef: detailedItem
+            ? { slug: detailedItem.slug, content_type: detailedItem.content_type }
+            : null,
+          activeFileId: detailedItem.files?.[0]?.id || null,
+          activeSession: null,
+          activeView: "discover",
+          activeDetailPanel: "overview",
+          sessionFeedback: "",
+          sessionFeedbackTone: "neutral",
+        };
+        persistState(nextState);
+        return nextState;
+      });
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        pageStatus: `Could not load details for this title. ${error.message}`,
+        pageStatusTone: "danger",
+      }));
+    }
+  }
+
+  async function loadCollections(options = {}) {
+    const apiBaseUrl = (options.apiBaseUrl ?? state.apiBaseUrl).trim();
+    const savedRef = options.savedRef ?? state.activeItemRef;
+
     setState((current) => ({
       ...current,
-      activeItem: detailedItem,
-      activeFileId: detailedItem.files?.[0]?.id || null,
-      activeSession: null,
-      activeView: "discover",
-      activeDetailPanel: "overview",
+      isRefreshing: true,
+      pageStatus: "Refreshing the catalog.",
+      pageStatusTone: "neutral",
     }));
+
+    try {
+      const [homeResponse, moviesResponse, audioResponse] = await Promise.all([
+        fetchJson(apiBaseUrl, "/home"),
+        fetchJson(apiBaseUrl, `/movies?sort=${encodeURIComponent(options.sortFilter ?? state.sortFilter)}`),
+        fetchJson(apiBaseUrl, "/audio"),
+      ]);
+
+      const homeSections = homeResponse.data.sections || [];
+      const featuredItems = homeSections.flatMap((section) => section.items || []);
+      const movieItems = moviesResponse.data || [];
+      const audioItems = audioResponse.data || [];
+      const merged = mergeUniqueItems(featuredItems, movieItems, audioItems);
+      const restored =
+        savedRef && merged.find((item) => item.slug === savedRef.slug && item.content_type === savedRef.content_type);
+      const firstItem = restored || merged[0] || null;
+
+      setState((current) => ({
+        ...current,
+        apiBaseUrl,
+        userId: current.userId.trim(),
+        usingFallback: false,
+        homeSections,
+        featuredItems,
+        movieItems,
+        audioItems,
+        isRefreshing: false,
+        pageStatus: "Catalog synced from the live API.",
+        pageStatusTone: "success",
+      }));
+
+      if (firstItem) {
+        await selectItem(firstItem, { usingFallback: false, apiBaseUrl });
+      }
+    } catch (error) {
+      const firstItem = applyFallbackCollections(apiBaseUrl, savedRef);
+      setState((current) => ({
+        ...current,
+        isRefreshing: false,
+      }));
+
+      if (firstItem) {
+        await selectItem(firstItem, { usingFallback: true, apiBaseUrl });
+      }
+    }
   }
 
   async function performSearch() {
@@ -179,16 +356,30 @@ export default function Page() {
       return;
     }
 
+    setState((current) => ({
+      ...current,
+      pageStatus: `Searching for "${query}".`,
+      pageStatusTone: "neutral",
+    }));
+
     if (state.usingFallback) {
       const items = allItems.filter((item) => {
         const matchesType = state.typeFilter === "all" || item.content_type === state.typeFilter;
         return matchesType && item.title.toLowerCase().includes(query.toLowerCase());
       });
-      setState((current) => ({
-        ...current,
-        activeSection: "featured",
-        featuredItems: items,
-      }));
+
+      setState((current) => {
+        const nextState = {
+          ...current,
+          featuredItems: items,
+          pageStatus: items.length
+            ? `Showing ${items.length} fallback result${items.length === 1 ? "" : "s"}.`
+            : "No fallback matches were found for that search.",
+          pageStatusTone: items.length ? "success" : "warning",
+        };
+        persistState(nextState);
+        return nextState;
+      });
       return;
     }
 
@@ -196,40 +387,86 @@ export default function Page() {
       const params = new URLSearchParams({ q: query });
       if (state.typeFilter !== "all") params.set("type", state.typeFilter);
       const response = await fetchJson(state.apiBaseUrl, `/search?${params.toString()}`);
+      const items = response.data || [];
+
+      setState((current) => {
+        const nextState = {
+          ...current,
+          featuredItems: items,
+          pageStatus: items.length
+            ? `Showing ${items.length} live result${items.length === 1 ? "" : "s"}.`
+            : "No live matches were found for that search.",
+          pageStatusTone: items.length ? "success" : "warning",
+        };
+        persistState(nextState);
+        return nextState;
+      });
+
+      if (items[0]) {
+        await selectItem(items[0], { usingFallback: false, apiBaseUrl: state.apiBaseUrl });
+      }
+    } catch (error) {
       setState((current) => ({
         ...current,
-        activeSection: "featured",
-        featuredItems: response.data || [],
+        pageStatus: `Search failed. ${error.message}`,
+        pageStatusTone: "danger",
       }));
-    } catch (error) {
-      console.warn("Search failed.", error);
     }
   }
 
   async function createSession(consumePoints) {
     if (!selectedFile) return;
 
+    if (!state.telegramLinked || !state.userId) {
+      setState((current) => ({
+        ...current,
+        sessionBusy: false,
+        activeView: "unlock",
+        activeDetailPanel: "unlock",
+        sessionFeedback:
+          "This file can be unlocked after your Telegram details are available.",
+        sessionFeedbackTone: "warning",
+      }));
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      sessionBusy: true,
+      sessionFeedback: consumePoints ? "Using points to unlock this file..." : "Starting unlock session...",
+      sessionFeedbackTone: "neutral",
+    }));
+
     try {
       if (state.usingFallback) {
-        setState((current) => ({
-          ...current,
-          pointsBalance: consumePoints
-            ? Math.max(0, current.pointsBalance - selectedFile.points_cost)
-            : current.pointsBalance,
-          activeSession: {
-            download_session_id: "demo-session",
-            session_token: "demo-token",
-            ad_required: !consumePoints,
-            points_cost: selectedFile.points_cost,
-            points_spent: consumePoints ? selectedFile.points_cost : 0,
-            telegram_deep_link: "https://t.me/demo_bot?start=demo-token",
-            expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-            status: consumePoints ? "created" : "ad_pending",
-            content_file_id: selectedFile.id,
-          },
-          activeView: "unlock",
-          activeDetailPanel: "unlock",
-        }));
+        setState((current) => {
+          const nextState = {
+            ...current,
+            pointsBalance: consumePoints
+              ? Math.max(0, current.pointsBalance - selectedFile.points_cost)
+              : current.pointsBalance,
+            activeSession: {
+              download_session_id: "demo-session",
+              session_token: "demo-token",
+              ad_required: !consumePoints,
+              points_cost: selectedFile.points_cost,
+              points_spent: consumePoints ? selectedFile.points_cost : 0,
+              telegram_deep_link: "https://t.me/demo_bot?start=demo-token",
+              expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+              status: consumePoints ? "created" : "ad_pending",
+              content_file_id: selectedFile.id,
+            },
+            activeView: "unlock",
+            activeDetailPanel: "unlock",
+            sessionBusy: false,
+            sessionFeedback: consumePoints
+              ? "Points spent. The file is ready for Telegram handoff."
+              : "Demo session created. Continue the unlock flow in Telegram.",
+            sessionFeedbackTone: "success",
+          };
+          persistState(nextState);
+          return nextState;
+        });
         return;
       }
 
@@ -242,36 +479,64 @@ export default function Page() {
         }),
       });
 
+      setState((current) => {
+        const nextState = {
+          ...current,
+          pointsBalance:
+            consumePoints && response.data.points_spent
+              ? Math.max(0, current.pointsBalance - response.data.points_spent)
+              : current.pointsBalance,
+          activeSession: response.data,
+          activeView: "unlock",
+          activeDetailPanel: "unlock",
+          sessionBusy: false,
+          sessionFeedback: response.data.ad_required
+            ? "Session created. Complete the rewarded step, then continue in Telegram."
+            : "Session unlocked. Telegram can open the file immediately.",
+          sessionFeedbackTone: "success",
+        };
+        persistState(nextState);
+        return nextState;
+      });
+    } catch (error) {
       setState((current) => ({
         ...current,
-        pointsBalance:
-          consumePoints && response.data.points_spent
-            ? Math.max(0, current.pointsBalance - response.data.points_spent)
-            : current.pointsBalance,
-        activeSession: response.data,
-        activeView: "unlock",
-        activeDetailPanel: "unlock",
+        sessionBusy: false,
+        sessionFeedback: `Could not create a session. ${error.message}`,
+        sessionFeedbackTone: "danger",
       }));
-    } catch (error) {
-      console.warn("Session failed.", error);
     }
   }
 
   async function usePointsForSession() {
     if (!state.activeSession) return;
 
+    setState((current) => ({
+      ...current,
+      sessionBusy: true,
+      sessionFeedback: "Spending points to bypass the ad step...",
+      sessionFeedbackTone: "neutral",
+    }));
+
     try {
       if (state.usingFallback) {
-        setState((current) => ({
-          ...current,
-          pointsBalance: Math.max(0, current.pointsBalance - current.activeSession.points_cost),
-          activeSession: {
-            ...current.activeSession,
-            ad_required: false,
-            status: "created",
-            points_spent: current.activeSession.points_cost,
-          },
-        }));
+        setState((current) => {
+          const nextState = {
+            ...current,
+            pointsBalance: Math.max(0, current.pointsBalance - current.activeSession.points_cost),
+            activeSession: {
+              ...current.activeSession,
+              ad_required: false,
+              status: "created",
+              points_spent: current.activeSession.points_cost,
+            },
+            sessionBusy: false,
+            sessionFeedback: "Points applied. Telegram can now open the file immediately.",
+            sessionFeedbackTone: "success",
+          };
+          persistState(nextState);
+          return nextState;
+        });
         return;
       }
 
@@ -281,20 +546,148 @@ export default function Page() {
         { method: "POST" }
       );
 
+      setState((current) => {
+        const nextState = {
+          ...current,
+          pointsBalance: Math.max(0, current.pointsBalance - response.data.points_spent),
+          activeSession: response.data,
+          sessionBusy: false,
+          sessionFeedback: "Points applied. The unlock step is complete.",
+          sessionFeedbackTone: "success",
+        };
+        persistState(nextState);
+        return nextState;
+      });
+    } catch (error) {
       setState((current) => ({
         ...current,
-        pointsBalance: Math.max(0, current.pointsBalance - response.data.points_spent),
-        activeSession: response.data,
+        sessionBusy: false,
+        sessionFeedback: `Could not spend points for this session. ${error.message}`,
+        sessionFeedbackTone: "danger",
       }));
-    } catch (error) {
-      console.warn("Point bypass failed.", error);
     }
   }
 
   useEffect(() => {
-    loadCollections();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (typeof window === "undefined") return;
+
+    const raw = window.localStorage.getItem(storageKey);
+    const telegramContext = extractTelegramContext(new URLSearchParams(window.location.search));
+    if (!raw) {
+      if (telegramContext) {
+        setState((current) => ({
+          ...current,
+          ...telegramContext,
+          pageStatus: `Telegram visitor detected${telegramContext.telegramUsername ? ` for @${telegramContext.telegramUsername}` : ""}.`,
+          pageStatusTone: "success",
+        }));
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      loadCollections({ savedRef: null });
+      return;
+    }
+
+    try {
+      const saved = JSON.parse(raw);
+      const mergedTelegramContext = telegramContext || {
+        userId: saved.userId || "",
+        telegramUserId: saved.telegramUserId || "",
+        telegramUsername: saved.telegramUsername || "",
+        telegramLinked: Boolean(saved.telegramLinked),
+        pointsBalance: saved.telegramLinked ? saved.pointsBalance ?? 0 : 0,
+      };
+      setState((current) => ({
+        ...current,
+        apiBaseUrl: saved.apiBaseUrl || current.apiBaseUrl,
+        userId: mergedTelegramContext.userId || current.userId,
+        telegramUserId: mergedTelegramContext.telegramUserId || "",
+        telegramUsername: mergedTelegramContext.telegramUsername || "",
+        telegramLinked: Boolean(mergedTelegramContext.telegramLinked),
+        pointsBalance: mergedTelegramContext.telegramLinked
+          ? mergedTelegramContext.pointsBalance ?? current.pointsBalance
+          : 0,
+        featuredHeroIndex: Number.isFinite(saved.featuredHeroIndex)
+          ? saved.featuredHeroIndex
+          : current.featuredHeroIndex,
+        isHeroPaused: Boolean(saved.isHeroPaused),
+        activeSection: saved.activeSection || current.activeSection,
+        activeView:
+          saved.activeView === "wallet" && !mergedTelegramContext.telegramLinked
+            ? "discover"
+            : saved.activeView || current.activeView,
+        activeDetailPanel: saved.activeDetailPanel || current.activeDetailPanel,
+        activeFileId: saved.activeFileId || null,
+        activeSession: saved.activeSession || null,
+        searchQuery: saved.searchQuery || "",
+        sortFilter: saved.sortFilter || current.sortFilter,
+        typeFilter: saved.typeFilter || current.typeFilter,
+        activeItemRef: saved.activeItemRef || null,
+        pageStatus: mergedTelegramContext.telegramLinked
+          ? `Restoring your Telegram-linked session${mergedTelegramContext.telegramUsername ? ` for @${mergedTelegramContext.telegramUsername}` : ""}.`
+          : "Restoring your session.",
+        pageStatusTone: "neutral",
+      }));
+      if (telegramContext) {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      loadCollections({
+        apiBaseUrl: saved.apiBaseUrl || initialState.apiBaseUrl,
+        savedRef: saved.activeItemRef || null,
+        sortFilter: saved.sortFilter || initialState.sortFilter,
+      });
+    } catch {
+      window.localStorage.removeItem(storageKey);
+      if (telegramContext) {
+        setState((current) => ({
+          ...current,
+          ...telegramContext,
+          pageStatus: `Telegram visitor detected${telegramContext.telegramUsername ? ` for @${telegramContext.telegramUsername}` : ""}.`,
+          pageStatusTone: "success",
+        }));
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      loadCollections();
+    }
   }, []);
+
+  useEffect(() => {
+    persistState(state);
+  }, [
+    state.activeDetailPanel,
+    state.activeFileId,
+    state.activeItem,
+    state.activeItemRef,
+    state.featuredHeroIndex,
+    state.isHeroPaused,
+    state.activeSection,
+    state.activeSession,
+    state.activeView,
+    state.apiBaseUrl,
+    state.pointsBalance,
+    state.searchQuery,
+    state.sortFilter,
+    state.telegramLinked,
+    state.telegramUserId,
+    state.telegramUsername,
+    state.typeFilter,
+    state.userId,
+  ]);
+
+  useEffect(() => {
+    if (featuredStageItems.length <= 1 || state.isHeroPaused) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      setState((current) => ({
+        ...current,
+        featuredHeroIndex:
+          current.featuredHeroIndex >= featuredStageItems.length - 1
+            ? 0
+            : current.featuredHeroIndex + 1,
+      }));
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [featuredStageItems.length, state.isHeroPaused]);
 
   const modeLabel = state.usingFallback ? "Fallback demo" : "Live API";
   const laneLabel = `${state.activeSection.charAt(0).toUpperCase()}${state.activeSection.slice(1)}`;
@@ -302,384 +695,161 @@ export default function Page() {
     ? `${state.activeItem.content_type.charAt(0).toUpperCase()}${state.activeItem.content_type.slice(1)}`
     : "Waiting";
 
-  return (
-    <div className="app-shell">
-      <header className="site-header">
-        <div className="brand-cluster">
-          <p className="eyebrow">Internet Money Bitch</p>
-          <h1>IMB</h1>
-          <p className="brand-summary">Movies, series, and audio with a calmer unlock flow.</p>
-        </div>
+  function renderCarouselSection(section) {
+    const items = section.items || [];
+    if (!items.length) return null;
 
-        <nav className="main-nav" aria-label="Primary">
-          {[
-            ["discover", "Discover"],
-            ["unlock", "Unlock"],
-            ["wallet", "Wallet"],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              className={`nav-chip ${state.activeView === value ? "is-active" : ""}`}
-              onClick={() => setState((current) => ({ ...current, activeView: value }))}
-              type="button"
+    return (
+      <section className="carousel-section" key={section.key || section.slug || section.title}>
+        <div className="carousel-head">
+          <div>
+            <h3>{section.title}</h3>
+          </div>
+          <span className="carousel-count">
+            {items.length} title{items.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <div className="carousel-row">
+          {items.map((item) => (
+            <Link
+              key={`${item.content_type}-${item.slug}`}
+              className="carousel-card"
+              href={hrefForItem(item)}
+              style={backgroundImage(item.poster_url)}
             >
-              {label}
-            </button>
+              <div className="carousel-card-copy">
+                <p className="eyebrow">{item.content_type}</p>
+                <h4>{item.title}</h4>
+                <p>{item.release_year || "Fresh drop"}</p>
+              </div>
+            </Link>
           ))}
-        </nav>
-
-        <div className="wallet-card">
-          <span className="wallet-label">Points</span>
-          <strong>{state.pointsBalance}</strong>
         </div>
-      </header>
-
-      <section className="control-bar">
-        <label className="field compact-field">
-          <span>API</span>
-          <input
-            onChange={(event) => setState((current) => ({ ...current, apiBaseUrl: event.target.value }))}
-            value={state.apiBaseUrl}
-          />
-        </label>
-        <label className="field compact-field">
-          <span>User UUID</span>
-          <input
-            onChange={(event) => setState((current) => ({ ...current, userId: event.target.value }))}
-            value={state.userId}
-          />
-        </label>
-        <label className="field search-field">
-          <span>Search</span>
-          <input
-            onChange={(event) => setState((current) => ({ ...current, searchQuery: event.target.value }))}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") performSearch();
-            }}
-            placeholder="Search movies, series, and audio"
-            value={state.searchQuery}
-          />
-        </label>
-        <button className="secondary-button" onClick={performSearch} type="button">
-          Search
-        </button>
-        <button className="secondary-button" onClick={loadCollections} type="button">
-          Refresh
-        </button>
       </section>
+    );
+  }
 
-      <main className="page-grid">
-        <section className="content-column">
-          {state.activeView === "discover" && (
-            <section className="page-view is-active">
-              <section className="hero-band">
-                <div className="hero-copy">
-                  <p className="eyebrow">Featured tonight</p>
-                  <h2>{hero?.title || "Loading tonight's drop"}</h2>
-                  <p>
-                    {hero
-                      ? state.activeItem?.slug === hero.slug && state.activeItem?.synopsis
-                        ? state.activeItem.synopsis
-                        : "Browse first, unlock second. The catalog stays clean while Telegram handles delivery."
-                      : "Pulling featured content and keeping the download flow clear."}
-                  </p>
-                  <div className="hero-actions">
-                    <button
-                      className="primary-button"
-                      onClick={() => hero && selectItem(hero)}
-                      type="button"
-                    >
-                      Open title
-                    </button>
-                  </div>
-                </div>
-                <div className="hero-poster" style={backgroundImage(hero?.poster_url)} />
-              </section>
+  function renderFeaturedStage() {
+    if (!featuredHero && !featuredStageItems.length) return null;
 
-              <section className="metric-row">
-                <article className="stat-card">
-                  <span>Mode</span>
-                  <strong>{modeLabel}</strong>
-                </article>
-                <article className="stat-card">
-                  <span>Catalog lane</span>
-                  <strong>{laneLabel}</strong>
-                </article>
-                <article className="stat-card">
-                  <span>Selected type</span>
-                  <strong>{typeLabel}</strong>
-                </article>
-              </section>
+    return (
+      <section
+        className="featured-stage"
+        onMouseEnter={() => setState((current) => ({ ...current, isHeroPaused: true }))}
+        onMouseLeave={() => setState((current) => ({ ...current, isHeroPaused: false }))}
+        style={backgroundImage(featuredHero?.backdrop_url || featuredHero?.poster_url)}
+      >
+        <div className="featured-stage-overlay" />
+        <section className="search-strip search-strip-overlay">
+          <div className="search-strip-copy">
+            <p className="eyebrow">Search</p>
+            <h2>Find a movie</h2>
+          </div>
+          <div className="search-strip-bar">
+            <label className="field search-field search-strip-field">
+              <span>Movie search</span>
+              <input
+                onChange={(event) => setState((current) => ({ ...current, searchQuery: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") performSearch();
+                }}
+                placeholder="Search for movies"
+                value={state.searchQuery}
+              />
+            </label>
+            <button className="primary-button" onClick={performSearch} type="button">
+              Search
+            </button>
+          </div>
+        </section>
 
-              <section className="library-panel">
-                <div className="section-heading">
-                  <div>
-                    <p className="eyebrow">Browse</p>
-                    <h3>Catalog lanes</h3>
-                  </div>
-                  <div className="filters-inline">
-                    <label className="field compact-field">
-                      <span>Type</span>
-                      <select
-                        onChange={(event) =>
-                          setState((current) => ({ ...current, typeFilter: event.target.value }))
-                        }
-                        value={state.typeFilter}
-                      >
-                        <option value="all">All</option>
-                        <option value="movie">Movies</option>
-                        <option value="series">Series</option>
-                        <option value="audio">Audio</option>
-                      </select>
-                    </label>
-                    <label className="field compact-field">
-                      <span>Sort</span>
-                      <select
-                        onChange={(event) =>
-                          setState((current) => ({ ...current, sortFilter: event.target.value }))
-                        }
-                        value={state.sortFilter}
-                      >
-                        <option value="featured">Featured</option>
-                        <option value="latest">Latest</option>
-                        <option value="popular">Popular</option>
-                      </select>
-                    </label>
-                  </div>
-                </div>
+        <div className="featured-stage-shell">
+          <div className="featured-stage-top">
+            <div className="featured-stage-content">
+              <Link
+                className="featured-poster-card"
+                href={featuredHero ? hrefForItem(featuredHero) : "#"}
+                style={backgroundImage(featuredHero?.poster_url)}
+              />
+              <div className="featured-stage-copy">
+                <h2>{featuredHero?.title || "Tonight's picks"}</h2>
+                <p className="featured-stage-meta">
+                  {featuredHero
+                    ? [featuredHero.content_type, featuredHero.release_year]
+                        .filter(Boolean)
+                        .join(" | ")
+                    : "Featured title"}
+                </p>
+                <p>
+                  {featuredHero
+                    ? state.activeItem?.slug === featuredHero.slug && state.activeItem?.synopsis
+                      ? state.activeItem.synopsis
+                      : "A bigger stage for the titles we want users to notice first."
+                    : "Featured drops appear here first."}
+                </p>
+              </div>
+            </div>
 
-                <div className="segment-control" role="tablist">
-                  {[
-                    ["featured", "Featured"],
-                    ["movies", "Movies"],
-                    ["audio", "Audio"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      className={`segment ${state.activeSection === value ? "is-active" : ""}`}
-                      onClick={() => setState((current) => ({ ...current, activeSection: value }))}
-                      type="button"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+            {featuredStageItems.length > 1 ? (
+              <div className="featured-stage-arrows">
+                <button
+                  className="hero-arrow"
+                  onClick={() =>
+                    setState((current) => ({
+                      ...current,
+                      isHeroPaused: true,
+                      featuredHeroIndex:
+                        current.featuredHeroIndex <= 0
+                          ? featuredStageItems.length - 1
+                          : current.featuredHeroIndex - 1,
+                    }))
+                  }
+                  type="button"
+                >
+                  ‹
+                </button>
+                <button
+                  className="hero-arrow"
+                  onClick={() =>
+                    setState((current) => ({
+                      ...current,
+                      isHeroPaused: true,
+                      featuredHeroIndex:
+                        current.featuredHeroIndex >= featuredStageItems.length - 1
+                          ? 0
+                          : current.featuredHeroIndex + 1,
+                    }))
+                  }
+                  type="button"
+                >
+                  ›
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    );
+  }
 
-                <div className="catalog-grid">
-                  {!activeCollections.length && <p className="empty-state">No items matched this filter.</p>}
-                  {activeCollections.map((item) => (
-                    <button
-                      key={`${item.content_type}-${item.slug}`}
-                      className="media-card"
-                      onClick={() => selectItem(item)}
-                      style={backgroundImage(item.poster_url)}
-                      type="button"
-                    >
-                      <div className="media-card-copy">
-                        <p className="eyebrow">{item.content_type}</p>
-                        <h4>{item.title}</h4>
-                        <p>{item.release_year || "Audio release"}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            </section>
-          )}
+  return (
+    <div className="page-shell">
+      <SiteHeader activeKey={state.activeSection} />
 
-          {state.activeView === "unlock" && (
-            <section className="page-view is-active">
-              <section className="stack-panel">
-                <div className="section-heading">
-                  <div>
-                    <p className="eyebrow">Unlock flow</p>
-                    <h3>How download handoff works</h3>
-                  </div>
-                </div>
-                <div className="flow-grid">
-                  <article className="flow-card">
-                    <span>1</span>
-                    <h4>Pick a file</h4>
-                    <p>Choose quality or format from the selected movie or audio item.</p>
-                  </article>
-                  <article className="flow-card">
-                    <span>2</span>
-                    <h4>Unlock by ad or points</h4>
-                    <p>Watch the short rewarded step or spend saved points to skip it.</p>
-                  </article>
-                  <article className="flow-card">
-                    <span>3</span>
-                    <h4>Continue in Telegram</h4>
-                    <p>Your session deep link opens the delivery flow without cluttering the site.</p>
-                  </article>
-                </div>
-              </section>
-            </section>
-          )}
+      <div className="app-shell">
+        {renderFeaturedStage()}
 
-          {state.activeView === "wallet" && (
-            <section className="page-view is-active">
-              <section className="stack-panel">
-                <div className="section-heading">
-                  <div>
-                    <p className="eyebrow">Wallet</p>
-                    <h3>Points and account context</h3>
-                  </div>
-                </div>
-                <div className="wallet-layout">
-                  <article className="wallet-large">
-                    <span>Current points</span>
-                    <strong>{state.pointsBalance}</strong>
-                    <p>Points let repeat users bypass ads when they have earned enough.</p>
-                  </article>
-                  <article className="wallet-note">
-                    <h4>Why this matters</h4>
-                    <p>
-                      The goal is to keep ads present but intentional, so regular users feel rewarded
-                      instead of punished.
-                    </p>
-                  </article>
-                </div>
-              </section>
+        <section className="home-carousel-stack">
+          {discoverSections.length ? (
+            discoverSections.map((section) => renderCarouselSection(section))
+          ) : (
+            <section className="carousel-section">
+              <p className="empty-state">Homepage rows will appear here after they are configured in admin.</p>
             </section>
           )}
         </section>
 
-        <aside className="detail-rail">
-          <section className="detail-shell">
-            <div className="detail-backdrop" style={backgroundImage(state.activeItem?.backdrop_url || state.activeItem?.poster_url)} />
-            <div className="detail-body">
-              <div className="detail-header">
-                <p className="eyebrow">{state.activeItem?.content_type || "Movie"}</p>
-                <h2>{state.activeItem?.title || "Select a title"}</h2>
-                <p className="detail-meta">
-                  {state.activeItem
-                    ? [state.activeItem.release_year, state.activeItem.language?.toUpperCase()]
-                        .filter(Boolean)
-                        .join(" | ") || "Telegram unlock flow"
-                    : "Details, files, and unlock controls appear here."}
-                </p>
-              </div>
-
-              <div className="detail-nav" role="tablist">
-                {[
-                  ["overview", "Overview"],
-                  ["files", "Files"],
-                  ["unlock", "Unlock"],
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    className={`detail-tab ${state.activeDetailPanel === value ? "is-active" : ""}`}
-                    onClick={() => setState((current) => ({ ...current, activeDetailPanel: value }))}
-                    type="button"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {state.activeDetailPanel === "overview" && (
-                <section className="detail-panel-view is-active">
-                  <p className="detail-synopsis">
-                    {state.activeItem?.synopsis ||
-                      "Pick something from the catalog to preview files and open a download session."}
-                  </p>
-                  <div className="notice-band">
-                    <p className="eyebrow">Experience rule</p>
-                    <p>Ads stay near intent, not scattered all over browsing, so discovery stays clean.</p>
-                  </div>
-                </section>
-              )}
-
-              {state.activeDetailPanel === "files" && (
-                <section className="detail-panel-view is-active">
-                  <div className="section-heading inline-heading">
-                    <h3>Available files</h3>
-                    <span className="source-pill">{state.usingFallback ? "Fallback demo" : "Live API"}</span>
-                  </div>
-                  <div className="quality-list">
-                    {!selectedFiles.length && <p className="empty-state">No files published yet.</p>}
-                    {selectedFiles.map((file) => (
-                      <button
-                        key={file.id}
-                        className={`quality-button ${state.activeFileId === file.id ? "is-active" : ""}`}
-                        onClick={() =>
-                          setState((current) => ({
-                            ...current,
-                            activeFileId: file.id,
-                            activeSession: null,
-                            activeDetailPanel: "unlock",
-                          }))
-                        }
-                        type="button"
-                      >
-                        <div className="quality-main">
-                          <strong>{file.label || `${file.quality || "File"} ${file.format || ""}`.trim()}</strong>
-                          <span>{file.requires_ad ? "Rewarded unlock required" : "Direct unlock available"}</span>
-                        </div>
-                        <div className="quality-meta">
-                          <span>{file.quality || "Standard"}</span>
-                          <span>{formatBytes(file.file_size_bytes)} | {file.points_cost} pts</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {state.activeDetailPanel === "unlock" && (
-                <section className="detail-panel-view is-active">
-                  <div className="section-heading inline-heading">
-                    <h3>Download session</h3>
-                    <span className="status-pill">{state.activeSession?.status || "Idle"}</span>
-                  </div>
-                  <div className="session-card">
-                    <p>
-                      {!selectedFile
-                        ? "Choose a title with a published file to continue."
-                        : !state.activeSession
-                          ? `${selectedFile.label || selectedFile.quality || "Selected file"} costs ${selectedFile.points_cost} points to bypass ads.`
-                          : state.activeSession.ad_required
-                            ? "Session created. Complete the rewarded step, then continue in Telegram."
-                            : "Session unlocked. Telegram can open the file immediately."}
-                    </p>
-                    <div className="session-actions">
-                      <button
-                        className="primary-button"
-                        disabled={!selectedFile || Boolean(state.activeSession)}
-                        onClick={() => createSession(false)}
-                        type="button"
-                      >
-                        {state.activeSession ? "Session active" : "Start unlock"}
-                      </button>
-                      <button
-                        className="secondary-button"
-                        disabled={!selectedFile || (!state.activeSession && false)}
-                        onClick={() => (state.activeSession ? usePointsForSession() : createSession(true))}
-                        type="button"
-                      >
-                        {state.activeSession
-                          ? state.activeSession.ad_required
-                            ? "Bypass with points"
-                            : "Points used"
-                          : "Skip with points"}
-                      </button>
-                      <a
-                        className={`primary-button ${state.activeSession?.telegram_deep_link ? "" : "disabled-link"}`}
-                        href={state.activeSession?.telegram_deep_link || "#"}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        Open Telegram
-                      </a>
-                    </div>
-                  </div>
-                </section>
-              )}
-            </div>
-          </section>
-        </aside>
-      </main>
+      </div>
     </div>
   );
 }

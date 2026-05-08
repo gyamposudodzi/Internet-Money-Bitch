@@ -54,6 +54,24 @@ Authorization: Bearer <ADMIN_API_TOKEN>
 X-Admin-User-Id: <admin-user-uuid>
 ```
 
+For the admin login page, also set:
+
+```text
+ADMIN_LOGIN_USERNAME=imb_admin
+ADMIN_LOGIN_EMAIL=admin@example.com
+ADMIN_LOGIN_PASSWORD=admin12345
+ADMIN_LOGIN_USER_ID=11111111-1111-1111-1111-111111111111
+```
+
+The login screen uses `POST /api/v1/admin/auth/login` with username/email plus password,
+then stores the returned bearer token and admin user id for subsequent protected requests.
+
+Default local test credentials currently baked into the dev setup:
+
+- Username: `imb_admin`
+- Email: `admin@example.com`
+- Password: `admin12345`
+
 Starter admin endpoints:
 
 - `GET /api/v1/admin/auth/me`

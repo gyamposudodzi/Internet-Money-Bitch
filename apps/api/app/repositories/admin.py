@@ -577,6 +577,107 @@ class AdminRepository:
         )
         return [dict(row) for row in result.mappings().all()]
 
+    async def list_homepage_sections(self) -> list[dict]:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  hs.id::text as id,
+                  hs.title,
+                  hs.slug,
+                  hs.sort_order,
+                  hs.is_active,
+                  hs.config
+                from public.homepage_sections hs
+                order by hs.sort_order asc, hs.title asc
+                """
+            )
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    async def create_homepage_section(self, payload: dict, actor_user_id: str) -> dict:
+        section_id = str(uuid4())
+        await self.session.execute(
+            text(
+                """
+                insert into public.homepage_sections (
+                  id,
+                  title,
+                  slug,
+                  sort_order,
+                  is_active,
+                  config
+                )
+                values (
+                  :id::uuid,
+                  :title,
+                  :slug,
+                  :sort_order,
+                  :is_active,
+                  :config::jsonb
+                )
+                """
+            ),
+            {
+                "id": section_id,
+                "title": payload["title"],
+                "slug": payload["slug"],
+                "sort_order": payload.get("sort_order", 0),
+                "is_active": payload.get("is_active", True),
+                "config": json.dumps(payload.get("config", {})),
+            },
+        )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="homepage_section.created",
+            entity_type="homepage_section",
+            entity_id=section_id,
+            metadata=payload,
+        )
+        await self.session.commit()
+        return await self._homepage_section_summary(section_id)
+
+    async def update_homepage_section(
+        self,
+        section_id: str,
+        payload: dict,
+        actor_user_id: str | None = None,
+    ) -> dict:
+        existing = await self._fetch_homepage_section(section_id)
+        updated = {**existing, **{key: value for key, value in payload.items() if value is not None}}
+        await self.session.execute(
+            text(
+                """
+                update public.homepage_sections
+                set
+                  title = :title,
+                  slug = :slug,
+                  sort_order = :sort_order,
+                  is_active = :is_active,
+                  config = :config::jsonb,
+                  updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {
+                "id": section_id,
+                "title": updated["title"],
+                "slug": updated["slug"],
+                "sort_order": updated["sort_order"],
+                "is_active": updated["is_active"],
+                "config": json.dumps(updated.get("config", {})),
+            },
+        )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="homepage_section.updated",
+            entity_type="homepage_section",
+            entity_id=section_id,
+            metadata=payload,
+        )
+        await self.session.commit()
+        return await self._homepage_section_summary(section_id)
+
     async def create_content_file(self, payload: dict, actor_user_id: str) -> dict:
         content_file_id = str(uuid4())
         await self._assert_content_target_exists(payload["content_kind"], payload["content_id"])
@@ -960,6 +1061,44 @@ class AdminRepository:
 
     async def _platform_user_summary(self, user_id: str) -> dict:
         return await self._fetch_platform_user(user_id)
+
+    async def _fetch_homepage_section(self, section_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  hs.id::text as id,
+                  hs.title,
+                  hs.slug,
+                  hs.sort_order,
+                  hs.is_active,
+                  hs.config
+                from public.homepage_sections hs
+                where hs.id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": section_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(
+                code="homepage_section_not_found",
+                message="Homepage section not found.",
+                status_code=404,
+            )
+        return dict(row)
+
+    async def _homepage_section_summary(self, section_id: str) -> dict:
+        row = await self._fetch_homepage_section(section_id)
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "slug": row["slug"],
+            "sort_order": row["sort_order"],
+            "is_active": row["is_active"],
+            "config": row.get("config") or {},
+        }
 
     async def _insert_audit_log(
         self,

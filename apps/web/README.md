@@ -24,6 +24,16 @@ The app tries to load live data from:
 If the backend is unavailable, it falls back to seeded demo content so the UI
 still works for layout and flow testing.
 
+## Current Capabilities
+
+- Browse featured, movie, and audio lanes
+- Restore the current browsing session after refresh in the same browser
+- Keep selected title, selected file, points balance, and active view in local session storage
+- Show clearer status feedback for catalog sync, fallback mode, search, and unlock actions
+- Create unlock sessions and spend points from the detail rail
+- Continue delivery through Telegram deep links
+- Hide points and wallet UI for guest visitors until Telegram-linked user details are present
+
 ## Notes
 
 - Uses the Next.js App Router

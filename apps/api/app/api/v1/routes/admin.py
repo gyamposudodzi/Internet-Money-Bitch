@@ -15,6 +15,7 @@ from app.schemas.admin import (
     AdminContentFileCreateRequest,
     AdminContentFileUpdateRequest,
     AdminContentFileSummary,
+    AdminGenreSummary,
     AdminHomepageSectionCreateRequest,
     AdminHomepageSectionSummary,
     AdminHomepageSectionUpdateRequest,
@@ -28,6 +29,9 @@ from app.schemas.admin import (
     AdminPlatformUserSummary,
     AdminPointAdjustmentRequest,
     AdminPointAdjustmentResponse,
+    AdminSeriesCreateRequest,
+    AdminSeriesSummary,
+    AdminSeriesUpdateRequest,
     AdminUserModerationRequest,
     AdminUserSummary,
 )
@@ -180,6 +184,16 @@ def ensure_can_manage_content(identity) -> None:
         )
 
 
+@router.get("/genres")
+async def list_genres(
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    genres = await repository.list_genres()
+    return api_response(data=[AdminGenreSummary.model_validate(row) for row in genres])
+
+
 @router.get("/movies")
 async def list_movies(
     identity=Depends(get_current_admin_identity),
@@ -188,6 +202,16 @@ async def list_movies(
     ensure_can_manage_content(identity)
     movies = await repository.list_movies()
     return api_response(data=[AdminMovieSummary.model_validate(row) for row in movies])
+
+
+@router.get("/series")
+async def list_series(
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    series_items = await repository.list_series()
+    return api_response(data=[AdminSeriesSummary.model_validate(row) for row in series_items])
 
 
 @router.post("/movies")
@@ -199,6 +223,17 @@ async def create_movie(
     ensure_can_manage_content(identity)
     movie = await repository.create_movie(payload.model_dump(), identity.user_id)
     return api_response(data=AdminMovieSummary.model_validate(movie))
+
+
+@router.post("/series")
+async def create_series(
+    payload: AdminSeriesCreateRequest,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    series_item = await repository.create_series(payload.model_dump(), identity.user_id)
+    return api_response(data=AdminSeriesSummary.model_validate(series_item))
 
 
 @router.patch("/movies/{movie_id}")
@@ -217,6 +252,22 @@ async def update_movie(
     return api_response(data=AdminMovieSummary.model_validate(movie))
 
 
+@router.patch("/series/{series_id}")
+async def update_series(
+    series_id: str,
+    payload: AdminSeriesUpdateRequest,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    series_item = await repository.update_series(
+        validate_uuid(series_id, field_name="series_id"),
+        payload.model_dump(exclude_none=True),
+        identity.user_id,
+    )
+    return api_response(data=AdminSeriesSummary.model_validate(series_item))
+
+
 @router.delete("/movies/{movie_id}")
 async def archive_movie(
     movie_id: str,
@@ -226,6 +277,20 @@ async def archive_movie(
     ensure_can_manage_content(identity)
     movie = await repository.archive_movie(validate_uuid(movie_id, field_name="movie_id"), identity.user_id)
     return api_response(data=AdminMovieSummary.model_validate(movie))
+
+
+@router.delete("/series/{series_id}")
+async def archive_series(
+    series_id: str,
+    identity=Depends(get_current_admin_identity),
+    repository: AdminRepository = Depends(get_admin_repository),
+):
+    ensure_can_manage_content(identity)
+    series_item = await repository.archive_series(
+        validate_uuid(series_id, field_name="series_id"),
+        identity.user_id,
+    )
+    return api_response(data=AdminSeriesSummary.model_validate(series_item))
 
 
 @router.get("/audio")

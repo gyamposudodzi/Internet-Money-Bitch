@@ -45,7 +45,9 @@ insert into public.genres (id, name, slug)
 values
   ('33333333-3333-3333-3333-333333333331', 'Action', 'action'),
   ('33333333-3333-3333-3333-333333333332', 'Drama', 'drama'),
-  ('33333333-3333-3333-3333-333333333333', 'Soundtrack', 'soundtrack')
+  ('33333333-3333-3333-3333-333333333333', 'Soundtrack', 'soundtrack'),
+  ('33333333-3333-3333-3333-333333333334', 'Anime', 'anime'),
+  ('33333333-3333-3333-3333-333333333335', 'Cartoon', 'cartoon')
 on conflict (id) do nothing;
 
 insert into public.movies (

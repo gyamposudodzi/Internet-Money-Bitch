@@ -106,6 +106,12 @@ class StubAdminRepository:
             }
         ]
 
+    async def list_genres(self):
+        return [
+            {"id": "33333333-3333-3333-3333-333333333331", "name": "Action", "slug": "action"},
+            {"id": "33333333-3333-3333-3333-333333333334", "name": "Anime", "slug": "anime"},
+        ]
+
     async def list_movies(self):
         return [
             {
@@ -116,6 +122,21 @@ class StubAdminRepository:
                 "language": "en",
                 "publication_status": "published",
                 "featured_rank": 1,
+                "genre_slugs": ["action"],
+            }
+        ]
+
+    async def list_series(self):
+        return [
+            {
+                "id": "77777777-7777-7777-7777-777777777773",
+                "title": "Seoul Echoes",
+                "slug": "seoul-echoes",
+                "release_year": 2026,
+                "language": "ko",
+                "publication_status": "published",
+                "featured_rank": 2,
+                "genre_slugs": ["drama", "anime"],
             }
         ]
 
@@ -128,6 +149,19 @@ class StubAdminRepository:
             "language": payload.get("language"),
             "publication_status": payload["publication_status"],
             "featured_rank": payload.get("featured_rank"),
+            "genre_slugs": payload.get("genre_slugs", []),
+        }
+
+    async def create_series(self, payload: dict, actor_user_id: str):
+        return {
+            "id": "eeee1111-1111-1111-1111-111111111111",
+            "title": payload["title"],
+            "slug": payload["slug"],
+            "release_year": payload.get("release_year"),
+            "language": payload.get("language"),
+            "publication_status": payload["publication_status"],
+            "featured_rank": payload.get("featured_rank"),
+            "genre_slugs": payload.get("genre_slugs", []),
         }
 
     async def update_movie(self, movie_id: str, payload: dict, actor_user_id: str | None = None):
@@ -139,6 +173,19 @@ class StubAdminRepository:
             "language": payload.get("language", "en"),
             "publication_status": payload.get("publication_status", "draft"),
             "featured_rank": payload.get("featured_rank"),
+            "genre_slugs": payload.get("genre_slugs", ["action"]),
+        }
+
+    async def update_series(self, series_id: str, payload: dict, actor_user_id: str | None = None):
+        return {
+            "id": series_id,
+            "title": payload.get("title", "Seoul Echoes"),
+            "slug": payload.get("slug", "seoul-echoes"),
+            "release_year": payload.get("release_year", 2026),
+            "language": payload.get("language", "ko"),
+            "publication_status": payload.get("publication_status", "draft"),
+            "featured_rank": payload.get("featured_rank"),
+            "genre_slugs": payload.get("genre_slugs", ["drama"]),
         }
 
     async def archive_movie(self, movie_id: str, actor_user_id: str | None = None):
@@ -150,6 +197,19 @@ class StubAdminRepository:
             "language": "en",
             "publication_status": "archived",
             "featured_rank": 1,
+            "genre_slugs": ["action"],
+        }
+
+    async def archive_series(self, series_id: str, actor_user_id: str | None = None):
+        return {
+            "id": series_id,
+            "title": "Seoul Echoes",
+            "slug": "seoul-echoes",
+            "release_year": 2026,
+            "language": "ko",
+            "publication_status": "archived",
+            "featured_rank": 2,
+            "genre_slugs": ["drama"],
         }
 
     async def list_audio(self):
@@ -460,6 +520,32 @@ def test_admin_movies_list_for_content_manager(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["data"][0]["slug"] == "heatline"
+    assert response.json()["data"][0]["genre_slugs"] == ["action"]
+    app.dependency_overrides.clear()
+
+
+def test_admin_series_list_for_content_manager(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.get("/api/v1/admin/series", headers=_headers("11111111-1111-1111-1111-111111111111"))
+
+    assert response.status_code == 200
+    assert response.json()["data"][0]["slug"] == "seoul-echoes"
+    assert response.json()["data"][0]["genre_slugs"] == ["drama", "anime"]
+    app.dependency_overrides.clear()
+
+
+def test_admin_genres_list_for_content_manager(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.get("/api/v1/admin/genres", headers=_headers("11111111-1111-1111-1111-111111111111"))
+
+    assert response.status_code == 200
+    assert response.json()["data"][1]["slug"] == "anime"
     app.dependency_overrides.clear()
 
 
@@ -477,11 +563,13 @@ def test_admin_create_movie(monkeypatch):
             "release_year": 2026,
             "language": "en",
             "publication_status": "draft",
+            "genre_slugs": ["action", "anime"],
         },
     )
 
     assert response.status_code == 200
     assert response.json()["data"]["title"] == "New Drop"
+    assert response.json()["data"]["genre_slugs"] == ["action", "anime"]
     app.dependency_overrides.clear()
 
 
@@ -503,6 +591,30 @@ def test_admin_create_audio(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["data"]["slug"] == "static-echo"
+    app.dependency_overrides.clear()
+
+
+def test_admin_create_series(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/admin/series",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+        json={
+            "title": "Glass Harbor",
+            "slug": "glass-harbor",
+            "release_year": 2026,
+            "language": "ko",
+            "publication_status": "draft",
+            "genre_slugs": ["drama"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["slug"] == "glass-harbor"
+    assert response.json()["data"]["genre_slugs"] == ["drama"]
     app.dependency_overrides.clear()
 
 
@@ -542,11 +654,29 @@ def test_admin_update_movie(monkeypatch):
     response = client.patch(
         "/api/v1/admin/movies/44444444-4444-4444-4444-444444444441",
         headers=_headers("11111111-1111-1111-1111-111111111111"),
-        json={"title": "Heatline Redux", "publication_status": "published"},
+        json={"title": "Heatline Redux", "publication_status": "published", "genre_slugs": ["anime"]},
     )
 
     assert response.status_code == 200
     assert response.json()["data"]["title"] == "Heatline Redux"
+    assert response.json()["data"]["genre_slugs"] == ["anime"]
+    app.dependency_overrides.clear()
+
+
+def test_admin_update_series(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/admin/series/77777777-7777-7777-7777-777777777773",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+        json={"title": "Seoul Echoes Reloaded", "publication_status": "published", "genre_slugs": ["anime"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["title"] == "Seoul Echoes Reloaded"
+    assert response.json()["data"]["genre_slugs"] == ["anime"]
     app.dependency_overrides.clear()
 
 
@@ -557,6 +687,21 @@ def test_admin_archive_audio(monkeypatch):
 
     response = client.delete(
         "/api/v1/admin/audio/55555555-5555-5555-5555-555555555551",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["publication_status"] == "archived"
+    app.dependency_overrides.clear()
+
+
+def test_admin_archive_series(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    client = TestClient(app)
+
+    response = client.delete(
+        "/api/v1/admin/series/77777777-7777-7777-7777-777777777773",
         headers=_headers("11111111-1111-1111-1111-111111111111"),
     )
 

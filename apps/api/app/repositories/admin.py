@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from uuid import uuid4
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
@@ -251,6 +251,21 @@ class AdminRepository:
         )
         return [dict(row) for row in result.mappings().all()]
 
+    async def list_genres(self) -> list[dict]:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  id::text as id,
+                  name,
+                  slug
+                from public.genres
+                order by name asc
+                """
+            )
+        )
+        return [dict(row) for row in result.mappings().all()]
+
     async def list_movies(self) -> list[dict]:
         result = await self.session.execute(
             text(
@@ -262,8 +277,19 @@ class AdminRepository:
                   release_year,
                   language,
                   publication_status::text as publication_status,
-                  featured_rank
+                  featured_rank,
+                  coalesce(
+                    array(
+                      select g.slug
+                      from public.movie_genres mg
+                      join public.genres g on g.id = mg.genre_id
+                      where mg.movie_id = m.id
+                      order by g.name asc
+                    ),
+                    '{}'
+                  ) as genre_slugs
                 from public.movies
+                m
                 order by created_at desc
                 """
             )
@@ -314,26 +340,23 @@ class AdminRepository:
             {
                 "id": movie_id,
                 "created_by": actor_user_id,
-                **payload,
+                **{key: value for key, value in payload.items() if key != "genre_slugs"},
             },
         )
+        await self._sync_movie_genres(movie_id, payload.get("genre_slugs") or [])
         await self._insert_audit_log(
             actor_user_id=actor_user_id,
             action="movie.created",
             entity_type="movie",
             entity_id=movie_id,
-            metadata={"slug": payload["slug"], "title": payload["title"]},
+            metadata={
+                "slug": payload["slug"],
+                "title": payload["title"],
+                "genre_slugs": payload.get("genre_slugs") or [],
+            },
         )
         await self.session.commit()
-        return {
-            "id": movie_id,
-            "title": payload["title"],
-            "slug": payload["slug"],
-            "release_year": payload.get("release_year"),
-            "language": payload.get("language"),
-            "publication_status": payload["publication_status"],
-            "featured_rank": payload.get("featured_rank"),
-        }
+        return await self._movie_summary(movie_id)
 
     async def update_movie(self, movie_id: str, payload: dict, actor_user_id: str | None = None) -> dict:
         existing = await self._fetch_movie(movie_id)
@@ -362,6 +385,8 @@ class AdminRepository:
             ),
             {"id": movie_id, **updated},
         )
+        if "genre_slugs" in payload:
+            await self._sync_movie_genres(movie_id, payload.get("genre_slugs") or [])
         await self._insert_audit_log(
             actor_user_id=actor_user_id,
             action="movie.updated",
@@ -392,6 +417,151 @@ class AdminRepository:
         )
         await self.session.commit()
         return await self._movie_summary(movie_id)
+
+    async def list_series(self) -> list[dict]:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  s.id::text as id,
+                  s.title,
+                  s.slug,
+                  s.release_year,
+                  s.language,
+                  s.publication_status::text as publication_status,
+                  s.featured_rank,
+                  coalesce(
+                    array(
+                      select g.slug
+                      from public.series_genres sg
+                      join public.genres g on g.id = sg.genre_id
+                      where sg.series_id = s.id
+                      order by g.name asc
+                    ),
+                    '{}'
+                  ) as genre_slugs
+                from public.series s
+                order by s.created_at desc
+                """
+            )
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    async def create_series(self, payload: dict, actor_user_id: str) -> dict:
+        series_id = str(uuid4())
+        await self.session.execute(
+            text(
+                """
+                insert into public.series (
+                  id,
+                  title,
+                  slug,
+                  synopsis,
+                  poster_url,
+                  backdrop_url,
+                  release_year,
+                  language,
+                  country,
+                  publication_status,
+                  featured_rank,
+                  published_at,
+                  created_by
+                )
+                values (
+                  :id::uuid,
+                  :title,
+                  :slug,
+                  :synopsis,
+                  :poster_url,
+                  :backdrop_url,
+                  :release_year,
+                  :language,
+                  :country,
+                  :publication_status::public.publication_status,
+                  :featured_rank,
+                  case when :publication_status = 'published' then now() else null end,
+                  :created_by::uuid
+                )
+                """
+            ),
+            {
+                "id": series_id,
+                "created_by": actor_user_id,
+                **{key: value for key, value in payload.items() if key != "genre_slugs"},
+            },
+        )
+        await self._sync_series_genres(series_id, payload.get("genre_slugs") or [])
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="series.created",
+            entity_type="series",
+            entity_id=series_id,
+            metadata={
+                "slug": payload["slug"],
+                "title": payload["title"],
+                "genre_slugs": payload.get("genre_slugs") or [],
+            },
+        )
+        await self.session.commit()
+        return await self._series_summary(series_id)
+
+    async def update_series(self, series_id: str, payload: dict, actor_user_id: str | None = None) -> dict:
+        existing = await self._fetch_series(series_id)
+        updated = {**existing, **{key: value for key, value in payload.items() if value is not None}}
+        await self.session.execute(
+            text(
+                """
+                update public.series
+                set
+                  title = :title,
+                  slug = :slug,
+                  synopsis = :synopsis,
+                  poster_url = :poster_url,
+                  backdrop_url = :backdrop_url,
+                  release_year = :release_year,
+                  language = :language,
+                  country = :country,
+                  publication_status = :publication_status::public.publication_status,
+                  featured_rank = :featured_rank,
+                  published_at = case when :publication_status = 'published' then coalesce(published_at, now()) else published_at end,
+                  updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": series_id, **updated},
+        )
+        if "genre_slugs" in payload:
+            await self._sync_series_genres(series_id, payload.get("genre_slugs") or [])
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="series.updated",
+            entity_type="series",
+            entity_id=series_id,
+            metadata={"changes": payload},
+        )
+        await self.session.commit()
+        return await self._series_summary(series_id)
+
+    async def archive_series(self, series_id: str, actor_user_id: str | None = None) -> dict:
+        await self.session.execute(
+            text(
+                """
+                update public.series
+                set publication_status = 'archived', updated_at = now()
+                where id = :id::uuid
+                """
+            ),
+            {"id": series_id},
+        )
+        await self._insert_audit_log(
+            actor_user_id=actor_user_id,
+            action="series.archived",
+            entity_type="series",
+            entity_id=series_id,
+            metadata={},
+        )
+        await self.session.commit()
+        return await self._series_summary(series_id)
 
     async def list_audio(self) -> list[dict]:
         result = await self.session.execute(
@@ -862,8 +1032,19 @@ class AdminRepository:
                   country,
                   imdb_rating,
                   publication_status::text as publication_status,
-                  featured_rank
+                  featured_rank,
+                  coalesce(
+                    array(
+                      select g.slug
+                      from public.movie_genres mg
+                      join public.genres g on g.id = mg.genre_id
+                      where mg.movie_id = m.id
+                      order by g.name asc
+                    ),
+                    '{}'
+                  ) as genre_slugs
                 from public.movies
+                m
                 where id = :id::uuid
                 limit 1
                 """
@@ -886,8 +1067,19 @@ class AdminRepository:
                   release_year,
                   language,
                   publication_status::text as publication_status,
-                  featured_rank
+                  featured_rank,
+                  coalesce(
+                    array(
+                      select g.slug
+                      from public.movie_genres mg
+                      join public.genres g on g.id = mg.genre_id
+                      where mg.movie_id = m.id
+                      order by g.name asc
+                    ),
+                    '{}'
+                  ) as genre_slugs
                 from public.movies
+                m
                 where id = :id::uuid
                 limit 1
                 """
@@ -898,6 +1090,71 @@ class AdminRepository:
         if not row:
             raise AppError(code="movie_not_found", message="Movie not found.", status_code=404)
         return dict(row)
+
+    async def _sync_movie_genres(self, movie_id: str, genre_slugs: list[str]) -> None:
+        normalized_slugs = sorted({slug.strip().lower() for slug in genre_slugs if slug and slug.strip()})
+        genre_ids = await self._resolve_genre_ids(normalized_slugs)
+        await self.session.execute(
+            text("delete from public.movie_genres where movie_id = :movie_id::uuid"),
+            {"movie_id": movie_id},
+        )
+        if not genre_ids:
+            return
+
+        await self.session.execute(
+            text(
+                """
+                insert into public.movie_genres (movie_id, genre_id)
+                values (:movie_id::uuid, :genre_id::uuid)
+                """
+            ),
+            [{"movie_id": movie_id, "genre_id": genre_id} for genre_id in genre_ids],
+        )
+
+    async def _sync_series_genres(self, series_id: str, genre_slugs: list[str]) -> None:
+        normalized_slugs = sorted({slug.strip().lower() for slug in genre_slugs if slug and slug.strip()})
+        genre_ids = await self._resolve_genre_ids(normalized_slugs)
+        await self.session.execute(
+            text("delete from public.series_genres where series_id = :series_id::uuid"),
+            {"series_id": series_id},
+        )
+        if not genre_ids:
+            return
+
+        await self.session.execute(
+            text(
+                """
+                insert into public.series_genres (series_id, genre_id)
+                values (:series_id::uuid, :genre_id::uuid)
+                """
+            ),
+            [{"series_id": series_id, "genre_id": genre_id} for genre_id in genre_ids],
+        )
+
+    async def _resolve_genre_ids(self, genre_slugs: list[str]) -> list[str]:
+        if not genre_slugs:
+            return []
+
+        result = await self.session.execute(
+            text(
+                """
+                select id::text as id, slug
+                from public.genres
+                where slug in :genre_slugs
+                """
+            ).bindparams(bindparam("genre_slugs", expanding=True)),
+            {"genre_slugs": genre_slugs},
+        )
+        rows = result.mappings().all()
+        found_by_slug = {row["slug"]: row["id"] for row in rows}
+        missing = [slug for slug in genre_slugs if slug not in found_by_slug]
+        if missing:
+            raise AppError(
+                code="genre_not_found",
+                message=f"Unknown genre slug(s): {', '.join(missing)}.",
+                status_code=400,
+            )
+        return [found_by_slug[slug] for slug in genre_slugs]
 
     async def _fetch_audio(self, audio_id: str) -> dict:
         result = await self.session.execute(
@@ -924,6 +1181,77 @@ class AdminRepository:
         row = result.mappings().first()
         if not row:
             raise AppError(code="audio_not_found", message="Audio item not found.", status_code=404)
+        return dict(row)
+
+    async def _fetch_series(self, series_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  s.title,
+                  s.slug,
+                  s.synopsis,
+                  s.poster_url,
+                  s.backdrop_url,
+                  s.release_year,
+                  s.language,
+                  s.country,
+                  s.publication_status::text as publication_status,
+                  s.featured_rank,
+                  coalesce(
+                    array(
+                      select g.slug
+                      from public.series_genres sg
+                      join public.genres g on g.id = sg.genre_id
+                      where sg.series_id = s.id
+                      order by g.name asc
+                    ),
+                    '{}'
+                  ) as genre_slugs
+                from public.series s
+                where s.id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": series_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(code="series_not_found", message="Series not found.", status_code=404)
+        return dict(row)
+
+    async def _series_summary(self, series_id: str) -> dict:
+        result = await self.session.execute(
+            text(
+                """
+                select
+                  s.id::text as id,
+                  s.title,
+                  s.slug,
+                  s.release_year,
+                  s.language,
+                  s.publication_status::text as publication_status,
+                  s.featured_rank,
+                  coalesce(
+                    array(
+                      select g.slug
+                      from public.series_genres sg
+                      join public.genres g on g.id = sg.genre_id
+                      where sg.series_id = s.id
+                      order by g.name asc
+                    ),
+                    '{}'
+                  ) as genre_slugs
+                from public.series s
+                where s.id = :id::uuid
+                limit 1
+                """
+            ),
+            {"id": series_id},
+        )
+        row = result.mappings().first()
+        if not row:
+            raise AppError(code="series_not_found", message="Series not found.", status_code=404)
         return dict(row)
 
     async def _audio_summary(self, audio_id: str) -> dict:

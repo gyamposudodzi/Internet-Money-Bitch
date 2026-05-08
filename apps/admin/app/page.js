@@ -35,6 +35,7 @@ const initialMovieForm = {
   publication_status: "draft",
   duration_minutes: "",
   synopsis: "",
+  genre_slugs: [],
 };
 
 const initialAudioForm = {
@@ -45,6 +46,16 @@ const initialAudioForm = {
   language: "",
   publication_status: "draft",
   synopsis: "",
+};
+
+const initialSeriesForm = {
+  title: "",
+  slug: "",
+  release_year: "",
+  language: "",
+  publication_status: "draft",
+  synopsis: "",
+  genre_slugs: [],
 };
 
 const initialFileForm = {
@@ -94,6 +105,7 @@ const initialState = {
   identity: null,
   overview: null,
   adminUsers: [],
+  genres: [],
   platformUsers: [],
   inventory: [],
   contentFiles: [],
@@ -103,6 +115,8 @@ const initialState = {
   inventoryType: "all",
   movieFileSearch: "",
   movieFilePickerOpen: false,
+  seriesFileSearch: "",
+  seriesFilePickerOpen: false,
   audioFileSearch: "",
   audioFilePickerOpen: false,
   showProfileMenu: false,
@@ -113,12 +127,15 @@ const initialState = {
   composerFeedbackTone: "neutral",
   movieForm: initialMovieForm,
   selectedMovieFileIds: [],
+  seriesForm: initialSeriesForm,
+  selectedSeriesFileIds: [],
   audioForm: initialAudioForm,
   selectedAudioFileIds: [],
   fileForm: initialFileForm,
   homepageSectionForm: initialHomepageSectionForm,
   pointsForm: initialPointsForm,
   movieEditId: null,
+  seriesEditId: null,
   audioEditId: null,
   fileEditId: null,
   homepageSectionEditId: null,
@@ -194,6 +211,7 @@ export default function Page() {
   const identity = state.fallback ? fallbackAdmin.identity : state.identity;
   const metrics = state.fallback ? fallbackAdmin.overview : state.overview;
   const adminUsers = state.fallback ? fallbackAdmin.adminUsers : state.adminUsers;
+  const genreOptions = state.fallback ? fallbackAdmin.genres : state.genres;
   const platformUsers = state.fallback ? fallbackAdmin.platformUsers : state.platformUsers;
   const contentFiles = state.fallback ? fallbackAdmin.contentFiles : state.contentFiles;
   const homepageSections = state.fallback ? fallbackAdmin.homepageSections : state.homepageSections;
@@ -230,6 +248,25 @@ export default function Page() {
       return haystack.includes(query);
     });
   }, [contentFiles, state.movieFileSearch]);
+
+  const filteredSeriesAttachableFiles = useMemo(() => {
+    const query = state.seriesFileSearch.trim().toLowerCase();
+    if (!query) return contentFiles;
+    return contentFiles.filter((file) => {
+      const haystack = [
+        file.label,
+        file.quality,
+        file.format,
+        file.storage_key,
+        file.content_kind,
+        file.assignment_label,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [contentFiles, state.seriesFileSearch]);
 
   const filteredAudioAttachableFiles = useMemo(() => {
     const query = state.audioFileSearch.trim().toLowerCase();
@@ -279,6 +316,7 @@ export default function Page() {
           identity: fallbackAdmin.identity,
           overview: fallbackAdmin.overview,
           adminUsers: fallbackAdmin.adminUsers,
+          genres: fallbackAdmin.genres,
           platformUsers: fallbackAdmin.platformUsers,
           inventory: fallbackAdmin.inventory,
           contentFiles: fallbackAdmin.contentFiles,
@@ -303,6 +341,7 @@ export default function Page() {
           identity: fallbackAdmin.identity,
           overview: fallbackAdmin.overview,
           adminUsers: fallbackAdmin.adminUsers,
+          genres: fallbackAdmin.genres,
           platformUsers: fallbackAdmin.platformUsers,
           inventory: fallbackAdmin.inventory,
           contentFiles: fallbackAdmin.contentFiles,
@@ -362,14 +401,19 @@ export default function Page() {
       composerFeedbackTone: "neutral",
       movieForm: initialMovieForm,
       audioForm: initialAudioForm,
+      seriesForm: initialSeriesForm,
       fileForm: initialFileForm,
       selectedMovieFileIds: [],
+      selectedSeriesFileIds: [],
       selectedAudioFileIds: [],
       movieFileSearch: "",
+      seriesFileSearch: "",
       audioFileSearch: "",
       movieFilePickerOpen: false,
+      seriesFilePickerOpen: false,
       audioFilePickerOpen: false,
       movieEditId: null,
+      seriesEditId: null,
       audioEditId: null,
       fileEditId: null,
       homepageSectionForm: initialHomepageSectionForm,
@@ -380,12 +424,15 @@ export default function Page() {
 
   async function loadInventory(baseUrl = state.apiBaseUrl, authData = auth) {
     try {
-      const [moviesResponse, audioResponse, filesResponse, sectionsResponse] = await Promise.all([
+      const [moviesResponse, seriesResponse, audioResponse, filesResponse, genresResponse, sectionsResponse] =
+        await Promise.all([
         fetchJson(baseUrl, "/admin/movies", {}, true, authData),
+        fetchJson(baseUrl, "/admin/series", {}, true, authData),
         fetchJson(baseUrl, "/admin/audio", {}, true, authData),
         fetchJson(baseUrl, "/admin/content-files", {}, true, authData),
+        fetchJson(baseUrl, "/admin/genres", {}, true, authData),
         fetchJson(baseUrl, "/admin/homepage-sections", {}, true, authData),
-      ]);
+        ]);
 
       const movies = (moviesResponse.data || []).map((item) => ({
         id: item.id,
@@ -396,6 +443,18 @@ export default function Page() {
         language: item.language,
         featured_rank: item.featured_rank,
         state: item.publication_status,
+        genre_slugs: item.genre_slugs || [],
+      }));
+      const seriesItems = (seriesResponse.data || []).map((item) => ({
+        id: item.id,
+        title: item.title,
+        content_type: "series",
+        release_year: item.release_year,
+        slug: item.slug,
+        language: item.language,
+        featured_rank: item.featured_rank,
+        state: item.publication_status,
+        genre_slugs: item.genre_slugs || [],
       }));
       const audio = (audioResponse.data || []).map((item) => ({
         id: item.id,
@@ -412,8 +471,9 @@ export default function Page() {
 
       setState((current) => ({
         ...current,
-        inventory: [...movies, ...audio],
+        inventory: [...movies, ...seriesItems, ...audio],
         contentFiles: filesResponse.data || [],
+        genres: genresResponse.data || [],
         homepageSections: sectionsResponse.data || [],
       }));
     } catch (error) {
@@ -422,6 +482,7 @@ export default function Page() {
         fallback: true,
         inventory: fallbackAdmin.inventory,
         contentFiles: fallbackAdmin.contentFiles,
+        genres: fallbackAdmin.genres,
         homepageSections: fallbackAdmin.homepageSections,
         statusMessage: `Inventory fallback active. ${error.message}`,
       }));
@@ -571,6 +632,7 @@ export default function Page() {
       slug: state.movieForm.slug || slugify(state.movieForm.title || ""),
       release_year: state.movieForm.release_year ? Number(state.movieForm.release_year) : null,
       duration_minutes: state.movieForm.duration_minutes ? Number(state.movieForm.duration_minutes) : null,
+      genre_slugs: state.movieForm.genre_slugs || [],
     };
     const selectedMovieFiles = !state.movieEditId ? state.selectedMovieFileIds : [];
 
@@ -683,6 +745,68 @@ export default function Page() {
         composerFeedbackTone: "danger",
       }));
       setStatus(`Audio save failed. ${error.message}`);
+    }
+  }
+
+  async function submitSeries(event) {
+    event.preventDefault();
+    const payload = {
+      ...state.seriesForm,
+      slug: state.seriesForm.slug || slugify(state.seriesForm.title || ""),
+      release_year: state.seriesForm.release_year ? Number(state.seriesForm.release_year) : null,
+      genre_slugs: state.seriesForm.genre_slugs || [],
+    };
+    const selectedSeriesFiles = !state.seriesEditId ? state.selectedSeriesFileIds : [];
+
+    try {
+      setState((current) => ({
+        ...current,
+        composerSubmitting: true,
+        composerFeedback: "Saving series...",
+        composerFeedbackTone: "neutral",
+      }));
+      const method = state.seriesEditId ? "PATCH" : "POST";
+      const path = state.seriesEditId ? `/admin/series/${state.seriesEditId}` : "/admin/series";
+      const response = await fetchJson(
+        state.apiBaseUrl,
+        path,
+        { method, body: JSON.stringify(payload) },
+        true,
+        auth
+      );
+
+      for (const contentFileId of selectedSeriesFiles) {
+        await fetchJson(
+          state.apiBaseUrl,
+          `/admin/content-files/${contentFileId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              content_kind: "series",
+              content_id: response.data.id,
+            }),
+          },
+          true,
+          auth
+        );
+      }
+
+      resetComposerState({
+        statusMessage: state.seriesEditId
+          ? "Series updated successfully."
+          : selectedSeriesFiles.length
+            ? "Series created and selected files attached."
+            : "Series created successfully.",
+      });
+      await refreshDashboard();
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        composerSubmitting: false,
+        composerFeedback: `Series save failed. ${error.message}`,
+        composerFeedbackTone: "danger",
+      }));
+      setStatus(`Series save failed. ${error.message}`);
     }
   }
 
@@ -804,9 +928,10 @@ export default function Page() {
 
   async function archiveInventoryItem(type, id) {
     try {
-      const path = type === "movie" ? `/admin/movies/${id}` : `/admin/audio/${id}`;
+      const path =
+        type === "movie" ? `/admin/movies/${id}` : type === "series" ? `/admin/series/${id}` : `/admin/audio/${id}`;
       await fetchJson(state.apiBaseUrl, path, { method: "DELETE" }, true, auth);
-      setStatus(`${type === "movie" ? "Movie" : "Audio"} archived.`);
+      setStatus(`${type === "movie" ? "Movie" : type === "series" ? "Series" : "Audio"} archived.`);
       await refreshDashboard();
     } catch (error) {
       setStatus(`Archive failed. ${error.message}`);
@@ -881,9 +1006,11 @@ export default function Page() {
     setState((current) => ({
       ...current,
       showComposer: true,
-      activeComposerTab: item.content_type === "movie" ? "movie" : "audio",
+      activeComposerTab:
+        item.content_type === "movie" ? "movie" : item.content_type === "series" ? "series" : "audio",
       activeView: "contents",
       movieEditId: item.content_type === "movie" ? item.id : null,
+      seriesEditId: item.content_type === "series" ? item.id : null,
       audioEditId: item.content_type === "audio" ? item.id : null,
       fileEditId: null,
       movieForm:
@@ -895,8 +1022,21 @@ export default function Page() {
               release_year: item.release_year || "",
               language: item.language || "",
               publication_status: item.state || "draft",
+              genre_slugs: item.genre_slugs || [],
             }
           : initialMovieForm,
+      seriesForm:
+        item.content_type === "series"
+          ? {
+              ...initialSeriesForm,
+              title: item.title || "",
+              slug: item.slug || "",
+              release_year: item.release_year || "",
+              language: item.language || "",
+              publication_status: item.state || "draft",
+              genre_slugs: item.genre_slugs || [],
+            }
+          : initialSeriesForm,
       audioForm:
         item.content_type === "audio"
           ? {
@@ -910,10 +1050,13 @@ export default function Page() {
             }
           : initialAudioForm,
       selectedMovieFileIds: [],
+      selectedSeriesFileIds: [],
       selectedAudioFileIds: [],
       movieFileSearch: "",
+      seriesFileSearch: "",
       audioFileSearch: "",
       movieFilePickerOpen: false,
+      seriesFilePickerOpen: false,
       audioFilePickerOpen: false,
     }));
   }
@@ -925,6 +1068,7 @@ export default function Page() {
       activeComposerTab: "file",
       activeView: "contents",
       movieEditId: null,
+      seriesEditId: null,
       audioEditId: null,
       fileEditId: file.id,
       fileForm: {
@@ -951,12 +1095,45 @@ export default function Page() {
     }));
   }
 
+  function toggleSeriesContentFile(contentFileId) {
+    setState((current) => ({
+      ...current,
+      selectedSeriesFileIds: current.selectedSeriesFileIds.includes(contentFileId)
+        ? current.selectedSeriesFileIds.filter((id) => id !== contentFileId)
+        : [...current.selectedSeriesFileIds, contentFileId],
+    }));
+  }
+
   function toggleAudioContentFile(contentFileId) {
     setState((current) => ({
       ...current,
       selectedAudioFileIds: current.selectedAudioFileIds.includes(contentFileId)
         ? current.selectedAudioFileIds.filter((id) => id !== contentFileId)
         : [...current.selectedAudioFileIds, contentFileId],
+    }));
+  }
+
+  function toggleMovieGenre(genreSlug) {
+    setState((current) => ({
+      ...current,
+      movieForm: {
+        ...current.movieForm,
+        genre_slugs: current.movieForm.genre_slugs.includes(genreSlug)
+          ? current.movieForm.genre_slugs.filter((slug) => slug !== genreSlug)
+          : [...current.movieForm.genre_slugs, genreSlug],
+      },
+    }));
+  }
+
+  function toggleSeriesGenre(genreSlug) {
+    setState((current) => ({
+      ...current,
+      seriesForm: {
+        ...current.seriesForm,
+        genre_slugs: current.seriesForm.genre_slugs.includes(genreSlug)
+          ? current.seriesForm.genre_slugs.filter((slug) => slug !== genreSlug)
+          : [...current.seriesForm.genre_slugs, genreSlug],
+      },
     }));
   }
 
@@ -978,20 +1155,142 @@ export default function Page() {
     return `${state.selectedAudioFileIds.length} files selected`;
   }
 
+  function selectedSeriesFilesLabel() {
+    if (!state.selectedSeriesFileIds.length) return "Choose downloadable files";
+    if (state.selectedSeriesFileIds.length === 1) {
+      const selectedFile = contentFiles.find((file) => file.id === state.selectedSeriesFileIds[0]);
+      return selectedFile?.label || selectedFile?.storage_key || "1 file selected";
+    }
+    return `${state.selectedSeriesFileIds.length} files selected`;
+  }
+
+  function renderMovieGenres() {
+    const selectedGenres = state.movieForm.genre_slugs || [];
+
+    return (
+      <section className="composer-subpanel">
+        <div className="panel-intro">
+          <p className="eyebrow">Genres</p>
+          <h3>Tag this movie for categories and discovery lanes</h3>
+        </div>
+
+        {selectedGenres.length ? (
+          <div className="selected-chip-row">
+            {selectedGenres.map((slug) => {
+              const genre = genreOptions.find((item) => item.slug === slug);
+              return (
+                <button className="selected-chip" key={slug} onClick={() => toggleMovieGenre(slug)} type="button">
+                  <span>{genre?.name || slug}</span>
+                  <strong>Remove</strong>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <div className="genre-selector-grid">
+          {genreOptions.length ? (
+            genreOptions.map((genre) => {
+              const isSelected = selectedGenres.includes(genre.slug);
+              return (
+                <button
+                  className={`genre-option ${isSelected ? "is-selected" : ""}`}
+                  key={genre.id}
+                  onClick={() => toggleMovieGenre(genre.slug)}
+                  type="button"
+                >
+                  <span>{genre.name}</span>
+                  <strong>{isSelected ? "Selected" : genre.slug}</strong>
+                </button>
+              );
+            })
+          ) : (
+            <p className="empty-state">No genres are available yet.</p>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderSeriesGenres() {
+    const selectedGenres = state.seriesForm.genre_slugs || [];
+
+    return (
+      <section className="composer-subpanel">
+        <div className="panel-intro">
+          <p className="eyebrow">Genres</p>
+          <h3>Tag this series for categories and discovery lanes</h3>
+        </div>
+
+        {selectedGenres.length ? (
+          <div className="selected-chip-row">
+            {selectedGenres.map((slug) => {
+              const genre = genreOptions.find((item) => item.slug === slug);
+              return (
+                <button className="selected-chip" key={slug} onClick={() => toggleSeriesGenre(slug)} type="button">
+                  <span>{genre?.name || slug}</span>
+                  <strong>Remove</strong>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <div className="genre-selector-grid">
+          {genreOptions.length ? (
+            genreOptions.map((genre) => {
+              const isSelected = selectedGenres.includes(genre.slug);
+              return (
+                <button
+                  className={`genre-option ${isSelected ? "is-selected" : ""}`}
+                  key={genre.id}
+                  onClick={() => toggleSeriesGenre(genre.slug)}
+                  type="button"
+                >
+                  <span>{genre.name}</span>
+                  <strong>{isSelected ? "Selected" : genre.slug}</strong>
+                </button>
+              );
+            })
+          ) : (
+            <p className="empty-state">No genres are available yet.</p>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   function renderAttachableFiles(kind) {
     const isMovie = kind === "movie";
-    const searchValue = isMovie ? state.movieFileSearch : state.audioFileSearch;
-    const pickerOpen = isMovie ? state.movieFilePickerOpen : state.audioFilePickerOpen;
-    const selectedIds = isMovie ? state.selectedMovieFileIds : state.selectedAudioFileIds;
-    const files = isMovie ? filteredMovieAttachableFiles : filteredAudioAttachableFiles;
-    const label = isMovie ? selectedMovieFilesLabel() : selectedAudioFilesLabel();
-    const toggleItem = isMovie ? toggleMovieContentFile : toggleAudioContentFile;
+    const isSeries = kind === "series";
+    const searchValue = isMovie
+      ? state.movieFileSearch
+      : isSeries
+        ? state.seriesFileSearch
+        : state.audioFileSearch;
+    const pickerOpen = isMovie
+      ? state.movieFilePickerOpen
+      : isSeries
+        ? state.seriesFilePickerOpen
+        : state.audioFilePickerOpen;
+    const selectedIds = isMovie
+      ? state.selectedMovieFileIds
+      : isSeries
+        ? state.selectedSeriesFileIds
+        : state.selectedAudioFileIds;
+    const files = isMovie
+      ? filteredMovieAttachableFiles
+      : isSeries
+        ? filteredSeriesAttachableFiles
+        : filteredAudioAttachableFiles;
+    const label = isMovie ? selectedMovieFilesLabel() : isSeries ? selectedSeriesFilesLabel() : selectedAudioFilesLabel();
+    const toggleItem = isMovie ? toggleMovieContentFile : isSeries ? toggleSeriesContentFile : toggleAudioContentFile;
 
     return (
       <section className="composer-subpanel">
         <div className="panel-intro">
           <p className="eyebrow">Downloadable files</p>
-          <h3>{isMovie ? "Attach files to this movie" : "Attach files to this audio item"}</h3>
+          <h3>{isMovie ? "Attach files to this movie" : isSeries ? "Attach files to this series" : "Attach files to this audio item"}</h3>
         </div>
         <div className="file-picker">
           <button
@@ -999,7 +1298,7 @@ export default function Page() {
             onClick={() =>
               setState((current) => ({
                 ...current,
-                [isMovie ? "movieFilePickerOpen" : "audioFilePickerOpen"]: !pickerOpen,
+                [isMovie ? "movieFilePickerOpen" : isSeries ? "seriesFilePickerOpen" : "audioFilePickerOpen"]: !pickerOpen,
               }))
             }
             type="button"
@@ -1038,7 +1337,8 @@ export default function Page() {
                   onChange={(event) =>
                     setState((current) => ({
                       ...current,
-                      [isMovie ? "movieFileSearch" : "audioFileSearch"]: event.target.value,
+                      [isMovie ? "movieFileSearch" : isSeries ? "seriesFileSearch" : "audioFileSearch"]:
+                        event.target.value,
                     }))
                   }
                 />
@@ -1292,6 +1592,7 @@ export default function Page() {
                 >
                   <option value="all">All</option>
                   <option value="movie">Movies</option>
+                  <option value="series">Series</option>
                   <option value="audio">Audio</option>
                 </select>
               </label>
@@ -2075,7 +2376,7 @@ export default function Page() {
               <div>
                 <p className="eyebrow">Create content</p>
                 <h2>
-                  {state.movieEditId || state.audioEditId || state.fileEditId
+                  {state.movieEditId || state.seriesEditId || state.audioEditId || state.fileEditId
                     ? "Edit item"
                     : "Add new item"}
                 </h2>
@@ -2088,6 +2389,7 @@ export default function Page() {
             <div className="composer-tabs">
               {[
                 ["movie", "Movie"],
+                ["series", "Series"],
                 ["audio", "Audio"],
                 ["file", "Content file"],
               ].map(([value, label]) => (
@@ -2204,10 +2506,103 @@ export default function Page() {
                       }
                     />
                   </label>
+                  {renderMovieGenres()}
                   {!state.movieEditId ? renderAttachableFiles("movie") : null}
                   <div className="form-actions">
                     <button className="primary-button" disabled={state.composerSubmitting} type="submit">
                       {state.composerSubmitting ? "Saving..." : "Save movie"}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {state.activeComposerTab === "series" && (
+                <form className="editor-form" onSubmit={submitSeries}>
+                  <div className="form-grid">
+                    <label className="field">
+                      <span>Title</span>
+                      <input
+                        required
+                        value={state.seriesForm.title}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            seriesForm: { ...current.seriesForm, title: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Slug</span>
+                      <input
+                        value={state.seriesForm.slug}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            seriesForm: { ...current.seriesForm, slug: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Year</span>
+                      <input
+                        type="number"
+                        value={state.seriesForm.release_year}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            seriesForm: { ...current.seriesForm, release_year: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Language</span>
+                      <input
+                        value={state.seriesForm.language}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            seriesForm: { ...current.seriesForm, language: event.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Status</span>
+                      <select
+                        value={state.seriesForm.publication_status}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            seriesForm: { ...current.seriesForm, publication_status: event.target.value },
+                          }))
+                        }
+                      >
+                        <option value="draft">Draft</option>
+                        <option value="published">Published</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="field">
+                    <span>Synopsis</span>
+                    <textarea
+                      rows="4"
+                      value={state.seriesForm.synopsis}
+                      onChange={(event) =>
+                        setState((current) => ({
+                          ...current,
+                          seriesForm: { ...current.seriesForm, synopsis: event.target.value },
+                        }))
+                      }
+                    />
+                  </label>
+                  {renderSeriesGenres()}
+                  {!state.seriesEditId ? renderAttachableFiles("series") : null}
+                  <div className="form-actions">
+                    <button className="primary-button" disabled={state.composerSubmitting} type="submit">
+                      {state.composerSubmitting ? "Saving..." : "Save series"}
                     </button>
                   </div>
                 </form>

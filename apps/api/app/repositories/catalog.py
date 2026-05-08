@@ -279,9 +279,16 @@ class CatalogRepository:
         movie_dict["files"] = await self._list_content_files("movie", movie_dict["id"])
         return movie_dict
 
-    async def list_series(self, page: int, limit: int) -> list[dict]:
+    async def list_series(
+        self,
+        q: str | None,
+        language: str | None,
+        sort: str,
+        page: int,
+        limit: int,
+    ) -> list[dict]:
         query = text(
-            """
+            f"""
             select
               s.id::text as id,
               s.title,
@@ -291,6 +298,8 @@ class CatalogRepository:
               'series' as content_type
             from public.series s
             where s.publication_status = 'published'
+              and (:q is null or s.title ilike :q or coalesce(s.synopsis, '') ilike :q)
+              and (:language is null or s.language = :language)
               and (
                 exists (
                   select 1
@@ -308,13 +317,18 @@ class CatalogRepository:
                     and cf.is_active = true
                 )
               )
-            order by coalesce(s.featured_rank, 999999) asc, coalesce(s.published_at, s.created_at) desc
+            order by {self._series_sort_clause(sort)}
             limit :limit offset :offset
             """
         )
         result = await self.session.execute(
             query,
-            {"limit": limit, "offset": self._offset(page, limit)},
+            {
+                "q": f"%{q.strip()}%" if q else None,
+                "language": language,
+                "limit": limit,
+                "offset": self._offset(page, limit),
+            },
         )
         return [dict(row) for row in result.mappings().all()]
 
@@ -627,6 +641,15 @@ class CatalogRepository:
             "featured": "coalesce(a.featured_rank, 999999) asc, coalesce(a.published_at, a.created_at) desc",
             "latest": "coalesce(a.published_at, a.created_at) desc",
             "title": "a.title asc",
+        }
+        return sort_map.get(sort, sort_map["latest"])
+
+    @staticmethod
+    def _series_sort_clause(sort: str) -> str:
+        sort_map = {
+            "featured": "coalesce(s.featured_rank, 999999) asc, coalesce(s.published_at, s.created_at) desc",
+            "latest": "coalesce(s.published_at, s.created_at) desc",
+            "title": "s.title asc",
         }
         return sort_map.get(sort, sort_map["latest"])
 

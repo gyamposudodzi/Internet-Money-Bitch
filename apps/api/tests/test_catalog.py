@@ -7,6 +7,9 @@ from app.main import app
 
 
 class StubCatalogRepository:
+    def __init__(self) -> None:
+        self.last_series_filters = None
+
     async def get_home_sections(self) -> dict:
         return {
             "sections": [
@@ -78,8 +81,24 @@ class StubCatalogRepository:
             ],
         }
 
-    async def list_series(self, page: int, limit: int) -> list[dict]:
-        return []
+    async def list_series(self, q, language, sort, page: int, limit: int) -> list[dict]:
+        self.last_series_filters = {
+            "q": q,
+            "language": language,
+            "sort": sort,
+            "page": page,
+            "limit": limit,
+        }
+        return [
+            {
+                "id": "series-1",
+                "title": "Seoul Files",
+                "slug": "seoul-files",
+                "poster_url": "https://example.com/series.jpg",
+                "release_year": 2025,
+                "content_type": "series",
+            }
+        ]
 
     async def get_series(self, slug: str) -> dict | None:
         return None
@@ -151,4 +170,35 @@ def test_get_movie_returns_404_when_missing():
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "movie_not_found"
+    app.dependency_overrides.clear()
+
+
+def test_list_series_accepts_filter_params():
+    repository = StubCatalogRepository()
+
+    async def override_repository() -> AsyncGenerator[StubCatalogRepository, None]:
+        yield repository
+
+    app.dependency_overrides[get_catalog_repository] = override_repository
+    client = TestClient(app)
+
+    response = client.get("/api/v1/series?q=seoul&language=ko&sort=featured&page=2&limit=8")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"][0]["slug"] == "seoul-files"
+    assert payload["meta"] == {
+        "q": "seoul",
+        "language": "ko",
+        "sort": "featured",
+        "page": 2,
+        "limit": 8,
+    }
+    assert repository.last_series_filters == {
+        "q": "seoul",
+        "language": "ko",
+        "sort": "featured",
+        "page": 2,
+        "limit": 8,
+    }
     app.dependency_overrides.clear()

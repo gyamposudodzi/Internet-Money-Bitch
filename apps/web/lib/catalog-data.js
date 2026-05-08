@@ -54,16 +54,31 @@ export function listFallbackAudio() {
   return fallbackCatalog.audio || [];
 }
 
+export function listFallbackKdrama() {
+  return fallbackCatalog.home.sections
+    .filter((section) => section.key === "kdrama" || section.title?.toLowerCase().includes("kdrama"))
+    .flatMap((section) => section.items || []);
+}
+
 export function listFallbackAnime() {
   return fallbackCatalog.home.sections
-    .flatMap((section) => section.items || [])
-    .filter((item) => item.title?.toLowerCase().includes("anime"));
+    .filter((section) => section.key === "anime" || section.title?.toLowerCase().includes("anime"))
+    .flatMap((section) => section.items || []);
 }
 
 export function listFallbackCartoons() {
   return fallbackCatalog.home.sections
+    .filter((section) => section.key === "cartoons" || section.title?.toLowerCase().includes("cartoon"))
+    .flatMap((section) => section.items || []);
+}
+
+export function searchFallbackItems(query) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return [];
+
+  return fallbackCatalog.home.sections
     .flatMap((section) => section.items || [])
-    .filter((item) => item.title?.toLowerCase().includes("cartoon"));
+    .filter((item) => item.title?.toLowerCase().includes(normalized));
 }
 
 export function getFallbackDetail(contentType, slug) {

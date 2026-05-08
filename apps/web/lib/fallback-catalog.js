@@ -50,6 +50,54 @@ export const fallbackCatalog = {
         ],
       },
       {
+        key: "anime",
+        title: "Anime",
+        items: [
+          {
+            id: "44444444-4444-4444-4444-444444444444",
+            title: "Skyline Mecha",
+            slug: "skyline-mecha",
+            poster_url:
+              "https://images.unsplash.com/photo-1517602302552-471fe67acf66?auto=format&fit=crop&w=900&q=80",
+            release_year: 2026,
+            content_type: "series",
+          },
+          {
+            id: "44444444-4444-4444-4444-444444444445",
+            title: "Cherry Orbit",
+            slug: "cherry-orbit",
+            poster_url:
+              "https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=900&q=80",
+            release_year: 2025,
+            content_type: "series",
+          },
+        ],
+      },
+      {
+        key: "cartoons",
+        title: "Cartoons",
+        items: [
+          {
+            id: "44444444-4444-4444-4444-444444444446",
+            title: "Pocket Parade",
+            slug: "pocket-parade",
+            poster_url:
+              "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=900&q=80",
+            release_year: 2024,
+            content_type: "movie",
+          },
+          {
+            id: "44444444-4444-4444-4444-444444444447",
+            title: "Lantern Club",
+            slug: "lantern-club",
+            poster_url:
+              "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=900&q=80",
+            release_year: 2023,
+            content_type: "series",
+          },
+        ],
+      },
+      {
         key: "late-night-audio",
         title: "Late Night Audio",
         items: [

@@ -1,7 +1,9 @@
 import Link from "next/link";
 
 const navItems = [
+  { href: "/", label: "Home", key: "home" },
   { href: "/movies", label: "Movies", key: "movies" },
+  { href: "/kdrama", label: "KDrama", key: "kdrama" },
   { href: "/series", label: "Series", key: "series" },
   { href: "/anime", label: "Anime", key: "anime" },
   { href: "/cartoons", label: "Cartoons", key: "cartoons" },

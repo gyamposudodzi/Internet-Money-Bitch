@@ -6,9 +6,18 @@ export default function AnimePage() {
     <CatalogGridPage
       activeKey="anime"
       title="Anime"
-      subtitle="This lane is prepared for anime-focused catalog pages."
-      endpoint="/search?q=anime"
+      subtitle="Browse anime releases and animated serial favorites."
+      buildEndpoint={({ query }) => {
+        const params = new URLSearchParams();
+        params.set("genre", "anime");
+        if (query) {
+          params.set("q", query);
+        }
+        return `/search?${params.toString()}`;
+      }}
       fallbackItems={listFallbackAnime()}
+      supportsQuery
+      queryPlaceholder="Filter anime titles"
     />
   );
 }

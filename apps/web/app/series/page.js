@@ -7,8 +7,23 @@ export default function SeriesPage() {
       activeKey="series"
       title="Series"
       subtitle="Browse the published series catalog."
-      endpoint="/series"
+      buildEndpoint={({ sort, query }) => {
+        const params = new URLSearchParams();
+        params.set("sort", sort || "latest");
+        if (query) {
+          params.set("q", query);
+        }
+        return `/series?${params.toString()}`;
+      }}
       fallbackItems={listFallbackSeries()}
+      sortOptions={[
+        { value: "latest", label: "Latest" },
+        { value: "featured", label: "Featured" },
+        { value: "title", label: "A-Z" },
+      ]}
+      defaultSort="latest"
+      supportsQuery
+      queryPlaceholder="Filter series titles"
     />
   );
 }

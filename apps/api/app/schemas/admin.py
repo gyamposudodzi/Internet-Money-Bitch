@@ -94,6 +94,12 @@ class AdminHomepageSectionUpdateRequest(BaseModel):
     config: dict | None = None
 
 
+class AdminGenreSummary(BaseModel):
+    id: str
+    name: str
+    slug: str
+
+
 class AdminMovieCreateRequest(BaseModel):
     title: str
     slug: str
@@ -107,6 +113,7 @@ class AdminMovieCreateRequest(BaseModel):
     imdb_rating: float | None = None
     publication_status: str = "draft"
     featured_rank: int | None = None
+    genre_slugs: list[str] = []
 
 
 class AdminMovieUpdateRequest(BaseModel):
@@ -122,6 +129,35 @@ class AdminMovieUpdateRequest(BaseModel):
     imdb_rating: float | None = None
     publication_status: str | None = None
     featured_rank: int | None = None
+    genre_slugs: list[str] | None = None
+
+
+class AdminSeriesCreateRequest(BaseModel):
+    title: str
+    slug: str
+    synopsis: str | None = None
+    poster_url: str | None = None
+    backdrop_url: str | None = None
+    release_year: int | None = None
+    language: str | None = None
+    country: str | None = None
+    publication_status: str = "draft"
+    featured_rank: int | None = None
+    genre_slugs: list[str] = []
+
+
+class AdminSeriesUpdateRequest(BaseModel):
+    title: str | None = None
+    slug: str | None = None
+    synopsis: str | None = None
+    poster_url: str | None = None
+    backdrop_url: str | None = None
+    release_year: int | None = None
+    language: str | None = None
+    country: str | None = None
+    publication_status: str | None = None
+    featured_rank: int | None = None
+    genre_slugs: list[str] | None = None
 
 
 class AdminAudioCreateRequest(BaseModel):
@@ -196,6 +232,18 @@ class AdminMovieSummary(BaseModel):
     language: str | None = None
     publication_status: str
     featured_rank: int | None = None
+    genre_slugs: list[str] = []
+
+
+class AdminSeriesSummary(BaseModel):
+    id: str
+    title: str
+    slug: str
+    release_year: int | None = None
+    language: str | None = None
+    publication_status: str
+    featured_rank: int | None = None
+    genre_slugs: list[str] = []
 
 
 class AdminAudioSummary(BaseModel):

@@ -27,6 +27,12 @@ export const fallbackAdmin = {
       can_view_analytics: true,
     },
   ],
+  genres: [
+    { id: "33333333-3333-3333-3333-333333333331", name: "Action", slug: "action" },
+    { id: "33333333-3333-3333-3333-333333333332", name: "Drama", slug: "drama" },
+    { id: "33333333-3333-3333-3333-333333333334", name: "Anime", slug: "anime" },
+    { id: "33333333-3333-3333-3333-333333333335", name: "Cartoon", slug: "cartoon" },
+  ],
   platformUsers: [
     {
       user_id: "22222222-2222-2222-2222-222222222222",
@@ -46,6 +52,7 @@ export const fallbackAdmin = {
       release_year: 2026,
       slug: "heatline",
       state: "published",
+      genre_slugs: ["action", "drama"],
     },
     {
       id: "55555555-5555-5555-5555-555555555551",
@@ -54,6 +61,16 @@ export const fallbackAdmin = {
       release_year: null,
       slug: "night-drive",
       state: "published",
+    },
+    {
+      id: "77777777-7777-7777-7777-777777777773",
+      title: "Seoul Echoes",
+      content_type: "series",
+      release_year: 2026,
+      slug: "seoul-echoes",
+      language: "ko",
+      state: "published",
+      genre_slugs: ["drama", "anime"],
     },
   ],
   contentFiles: [

@@ -80,12 +80,24 @@ async def get_movie(slug: str, repository: CatalogRepository = Depends(get_catal
 
 @router.get("/series")
 async def list_series(
+    q: str | None = None,
+    language: str | None = None,
+    sort: str = "latest",
     page: int = 1,
     limit: int = 24,
     repository: CatalogRepository = Depends(get_catalog_repository),
 ):
-    series_items = await repository.list_series(page=page, limit=limit)
-    return api_response(data=as_media_summaries(series_items), meta={"page": page, "limit": limit})
+    series_items = await repository.list_series(
+        q=q,
+        language=language,
+        sort=sort,
+        page=page,
+        limit=limit,
+    )
+    return api_response(
+        data=as_media_summaries(series_items),
+        meta={"q": q, "language": language, "sort": sort, "page": page, "limit": limit},
+    )
 
 
 @router.get("/series/{slug}")

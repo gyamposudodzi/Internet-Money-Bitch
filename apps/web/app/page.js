@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { SiteHeader } from "../components/site-header";
@@ -36,6 +37,8 @@ const initialState = {
   pageStatus: "Loading the catalog.",
   pageStatusTone: "neutral",
   isRefreshing: false,
+  searchSuggestionsOpen: false,
+  activeSuggestionIndex: -1,
   sessionBusy: false,
   sessionFeedback: "",
   sessionFeedbackTone: "neutral",
@@ -129,8 +132,18 @@ function subtitleForSection(activeSection) {
 }
 
 export default function Page() {
+  const router = useRouter();
   const [state, setState] = useState(initialState);
   const discoverSections = state.usingFallback ? fallbackCatalog.home.sections : state.homeSections;
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialState.searchQuery);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(state.searchQuery);
+    }, 180);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [state.searchQuery]);
 
   const allItems = useMemo(
     () =>
@@ -162,6 +175,15 @@ export default function Page() {
     }
     return state.movieItems;
   }, [allItems, state.activeSection, state.movieItems]);
+
+  const searchSuggestions = useMemo(() => {
+    const normalized = debouncedSearchQuery.trim().toLowerCase();
+    if (normalized.length < 2) return [];
+
+    return allItems
+      .filter((item) => item.title?.toLowerCase().includes(normalized))
+      .slice(0, 6);
+  }, [allItems, debouncedSearchQuery]);
 
   const hero =
     activeCollections[0] ||
@@ -349,69 +371,25 @@ export default function Page() {
     }
   }
 
-  async function performSearch() {
+  function performSearch() {
     const query = state.searchQuery.trim();
-    if (!query) {
-      await loadCollections();
-      return;
-    }
-
+    if (!query) return;
     setState((current) => ({
       ...current,
-      pageStatus: `Searching for "${query}".`,
-      pageStatusTone: "neutral",
+      searchSuggestionsOpen: false,
+      activeSuggestionIndex: -1,
     }));
+    router.push(`/search?q=${encodeURIComponent(query)}`);
+  }
 
-    if (state.usingFallback) {
-      const items = allItems.filter((item) => {
-        const matchesType = state.typeFilter === "all" || item.content_type === state.typeFilter;
-        return matchesType && item.title.toLowerCase().includes(query.toLowerCase());
-      });
-
-      setState((current) => {
-        const nextState = {
-          ...current,
-          featuredItems: items,
-          pageStatus: items.length
-            ? `Showing ${items.length} fallback result${items.length === 1 ? "" : "s"}.`
-            : "No fallback matches were found for that search.",
-          pageStatusTone: items.length ? "success" : "warning",
-        };
-        persistState(nextState);
-        return nextState;
-      });
-      return;
-    }
-
-    try {
-      const params = new URLSearchParams({ q: query });
-      if (state.typeFilter !== "all") params.set("type", state.typeFilter);
-      const response = await fetchJson(state.apiBaseUrl, `/search?${params.toString()}`);
-      const items = response.data || [];
-
-      setState((current) => {
-        const nextState = {
-          ...current,
-          featuredItems: items,
-          pageStatus: items.length
-            ? `Showing ${items.length} live result${items.length === 1 ? "" : "s"}.`
-            : "No live matches were found for that search.",
-          pageStatusTone: items.length ? "success" : "warning",
-        };
-        persistState(nextState);
-        return nextState;
-      });
-
-      if (items[0]) {
-        await selectItem(items[0], { usingFallback: false, apiBaseUrl: state.apiBaseUrl });
-      }
-    } catch (error) {
-      setState((current) => ({
-        ...current,
-        pageStatus: `Search failed. ${error.message}`,
-        pageStatusTone: "danger",
-      }));
-    }
+  function handleSuggestionSelect(item) {
+    setState((current) => ({
+      ...current,
+      searchQuery: item.title || current.searchQuery,
+      searchSuggestionsOpen: false,
+      activeSuggestionIndex: -1,
+    }));
+    router.push(hrefForItem(item));
   }
 
   async function createSession(consumePoints) {
@@ -746,16 +724,127 @@ export default function Page() {
             <h2>Find a movie</h2>
           </div>
           <div className="search-strip-bar">
-            <label className="field search-field search-strip-field">
+            <label className="field search-field search-strip-field search-suggest-shell">
               <span>Movie search</span>
               <input
-                onChange={(event) => setState((current) => ({ ...current, searchQuery: event.target.value }))}
+                onBlur={() => {
+                  window.setTimeout(() => {
+                    setState((current) => ({
+                      ...current,
+                      searchSuggestionsOpen: false,
+                      activeSuggestionIndex: -1,
+                    }));
+                  }, 120);
+                }}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    searchQuery: event.target.value,
+                    searchSuggestionsOpen: true,
+                    activeSuggestionIndex: -1,
+                  }))
+                }
+                onFocus={() =>
+                  setState((current) => ({
+                    ...current,
+                    searchSuggestionsOpen: true,
+                  }))
+                }
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") performSearch();
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    if (!searchSuggestions.length) return;
+                    setState((current) => ({
+                      ...current,
+                      searchSuggestionsOpen: true,
+                      activeSuggestionIndex:
+                        current.activeSuggestionIndex >= searchSuggestions.length - 1
+                          ? 0
+                          : current.activeSuggestionIndex + 1,
+                    }));
+                    return;
+                  }
+
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    if (!searchSuggestions.length) return;
+                    setState((current) => ({
+                      ...current,
+                      searchSuggestionsOpen: true,
+                      activeSuggestionIndex:
+                        current.activeSuggestionIndex <= 0
+                          ? searchSuggestions.length - 1
+                          : current.activeSuggestionIndex - 1,
+                    }));
+                    return;
+                  }
+
+                  if (event.key === "Escape") {
+                    setState((current) => ({
+                      ...current,
+                      searchSuggestionsOpen: false,
+                      activeSuggestionIndex: -1,
+                    }));
+                    return;
+                  }
+
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    if (
+                      state.searchSuggestionsOpen &&
+                      state.activeSuggestionIndex >= 0 &&
+                      searchSuggestions[state.activeSuggestionIndex]
+                    ) {
+                      handleSuggestionSelect(searchSuggestions[state.activeSuggestionIndex]);
+                      return;
+                    }
+                    performSearch();
+                  }
                 }}
                 placeholder="Search for movies"
                 value={state.searchQuery}
               />
+              {state.searchSuggestionsOpen && state.searchQuery.trim().length >= 2 ? (
+                <div className="search-suggestions">
+                  {searchSuggestions.length ? (
+                    searchSuggestions.map((item) => (
+                      <button
+                        className={`search-suggestion-item ${
+                          searchSuggestions[state.activeSuggestionIndex]?.slug === item.slug &&
+                          searchSuggestions[state.activeSuggestionIndex]?.content_type === item.content_type
+                            ? "is-active"
+                            : ""
+                        }`}
+                        key={`${item.content_type}-${item.slug}`}
+                        onMouseDown={() => handleSuggestionSelect(item)}
+                        onMouseEnter={() =>
+                          setState((current) => ({
+                            ...current,
+                            activeSuggestionIndex: searchSuggestions.findIndex(
+                              (entry) =>
+                                entry.slug === item.slug && entry.content_type === item.content_type
+                            ),
+                          }))
+                        }
+                        type="button"
+                      >
+                        <span
+                          className="search-suggestion-thumb"
+                          style={backgroundImage(item.poster_url)}
+                        />
+                        <span className="search-suggestion-copy">
+                          <span>{item.title}</span>
+                          <strong>
+                            {[item.content_type, item.release_year].filter(Boolean).join(" | ") || "Title"}
+                          </strong>
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="search-suggestion-empty">No matching titles yet.</div>
+                  )}
+                </div>
+              ) : null}
             </label>
             <button className="primary-button" onClick={performSearch} type="button">
               Search
@@ -834,7 +923,7 @@ export default function Page() {
 
   return (
     <div className="page-shell">
-      <SiteHeader activeKey={state.activeSection} />
+      <SiteHeader activeKey="home" />
 
       <div className="app-shell">
         {renderFeaturedStage()}

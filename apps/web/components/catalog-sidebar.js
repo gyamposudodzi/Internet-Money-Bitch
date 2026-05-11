@@ -1,13 +1,14 @@
 import Link from "next/link";
 
 const quickLinks = [
-  { href: "/", label: "Home Base", meta: "Main landing page" },
-  { href: "/movies", label: "Movie Drops", meta: "Latest releases" },
-  { href: "/kdrama", label: "KDrama Wave", meta: "Korean picks" },
-  { href: "/series", label: "Series Lane", meta: "Ongoing stories" },
-  { href: "/anime", label: "Anime Shelf", meta: "Animated favorites" },
-  { href: "/cartoons", label: "Cartoon Corner", meta: "Family picks" },
-  { href: "/audio", label: "Audio Picks", meta: "Tracks and albums" },
+  { href: "/", activeKey: "home", label: "Home Base", meta: "Main landing page" },
+  { href: "/movies", activeKey: "movies", label: "Movie Drops", meta: "Latest releases" },
+  { href: "/kdrama", activeKey: "kdrama", label: "KDrama Wave", meta: "Korean picks" },
+  { href: "/series", activeKey: "series", label: "Series Lane", meta: "Ongoing stories" },
+  { href: "/anime", activeKey: "anime", label: "Anime Shelf", meta: "Animated favorites" },
+  { href: "/cartoons", activeKey: "cartoons", label: "Cartoon Corner", meta: "Family picks" },
+  { href: "/audio", activeKey: "audio", label: "Audio Picks", meta: "Tracks and albums" },
+  { href: "/search", activeKey: "search", label: "Search", meta: "Find any title" },
 ];
 
 const adCards = [
@@ -28,8 +29,8 @@ export function CatalogSidebar({ activeKey }) {
         <p className="eyebrow">Explorer</p>
         <h3>Browse with intent</h3>
         <p>
-          Move through the catalog by lane, keep the page focused, and leave space for ads without
-          crowding the titles.
+          Move through the catalog by lane, keep the page focused, and leave space for ads without crowding the
+          titles.
         </p>
       </section>
 
@@ -41,7 +42,7 @@ export function CatalogSidebar({ activeKey }) {
         <div className="sidebar-link-list">
           {quickLinks.map((item) => (
             <Link
-              className={`sidebar-link ${activeKey === item.href.replace("/", "") ? "is-active" : ""}`}
+              className={`sidebar-link ${activeKey === item.activeKey ? "is-active" : ""}`}
               href={item.href}
               key={item.href}
             >

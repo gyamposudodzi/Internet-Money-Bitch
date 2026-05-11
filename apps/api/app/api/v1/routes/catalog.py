@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, Query
 from app.core.database import get_db_session
 from app.core.errors import AppError
 from app.repositories.catalog import CatalogFilters, CatalogRepository, as_media_detail, as_media_summaries
+from app.repositories.platform_settings import get_platform_settings_repository, PlatformSettingsRepository
+from app.schemas.platform_settings import SiteConfigPublic
 from app.schemas.responses import api_response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +13,14 @@ router = APIRouter()
 
 def get_catalog_repository(session: AsyncSession = Depends(get_db_session)) -> CatalogRepository:
     return CatalogRepository(session)
+
+
+@router.get("/site-config")
+async def get_public_site_config(
+    settings_repo: PlatformSettingsRepository = Depends(get_platform_settings_repository),
+):
+    data = await settings_repo.get_settings()
+    return api_response(data=SiteConfigPublic.model_validate(data))
 
 
 @router.get("/home")

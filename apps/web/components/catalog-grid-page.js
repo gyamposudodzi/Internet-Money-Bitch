@@ -1,11 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchCatalogJson } from "../lib/catalog-data";
 import { CatalogSidebar } from "./catalog-sidebar";
 import { MediaCardLink } from "./media-card-link";
 import { SiteHeader } from "./site-header";
+
+const QUERY_DEBOUNCE_MS = 420;
+
+function CatalogSkeletonGrid() {
+  return (
+    <div className="catalog-skeleton-grid" aria-hidden>
+      {Array.from({ length: 12 }, (_, i) => (
+        <div className="catalog-skeleton-card" key={`sk-${i}`} />
+      ))}
+    </div>
+  );
+}
 
 export function CatalogGridPage({
   activeKey,
@@ -21,6 +34,9 @@ export function CatalogGridPage({
   supportsQuery = false,
   queryPlaceholder = "Filter titles",
   fallbackTransform,
+  themeClass = "",
+  laneNotice = null,
+  stickyToolbar = false,
 }) {
   const itemsPerPage = 12;
   const [items, setItems] = useState(fallbackItems);
@@ -30,6 +46,33 @@ export function CatalogGridPage({
   const [sortValue, setSortValue] = useState(defaultSort);
   const [draftQuery, setDraftQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
+  const [isFetching, setIsFetching] = useState(true);
+  const [firstLoadDone, setFirstLoadDone] = useState(false);
+  const queryDebounceRef = useRef(null);
+
+  useEffect(() => {
+    if (!supportsQuery) return undefined;
+
+    if (queryDebounceRef.current) {
+      window.clearTimeout(queryDebounceRef.current);
+    }
+
+    queryDebounceRef.current = window.setTimeout(() => {
+      const next = draftQuery.trim();
+      setAppliedQuery((prev) => (prev === next ? prev : next));
+    }, QUERY_DEBOUNCE_MS);
+
+    return () => {
+      if (queryDebounceRef.current) {
+        window.clearTimeout(queryDebounceRef.current);
+      }
+    };
+  }, [draftQuery, supportsQuery]);
+
+  useEffect(() => {
+    if (!supportsQuery) return;
+    setCurrentPage(1);
+  }, [appliedQuery, supportsQuery]);
 
   const resolvedEndpoint = useMemo(() => {
     if (buildEndpoint) {
@@ -66,6 +109,7 @@ export function CatalogGridPage({
     let cancelled = false;
 
     async function load() {
+      setIsFetching(true);
       try {
         const response = await fetchCatalogJson(resolvedEndpoint);
         const nextItems = transformItems ? transformItems(response.data || []) : response.data || [];
@@ -79,7 +123,12 @@ export function CatalogGridPage({
         setItems(resolvedFallbackItems);
         setCurrentPage(1);
         setUsingFallback(true);
-        setStatus("Fallback catalog loaded.");
+        setStatus("Demo catalog in use.");
+      } finally {
+        if (!cancelled) {
+          setIsFetching(false);
+          setFirstLoadDone(true);
+        }
       }
     }
 
@@ -94,63 +143,104 @@ export function CatalogGridPage({
     setCurrentPage(totalPages);
   }, [currentPage, totalPages]);
 
-  const generatedToolbar = sortOptions || supportsQuery ? (
-    <div className="search-results-toolbar">
-      {sortOptions?.length ? (
-        <div className="filter-chip-group">
-          {sortOptions.map((option) => (
-            <button
-              className={`filter-chip ${sortValue === option.value ? "is-active" : ""}`}
-              key={option.value}
-              onClick={() => setSortValue(option.value)}
-              type="button"
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div />
-      )}
+  function flushQueryNow() {
+    if (queryDebounceRef.current) {
+      window.clearTimeout(queryDebounceRef.current);
+    }
+    const next = draftQuery.trim();
+    setAppliedQuery((prev) => (prev === next ? prev : next));
+  }
 
-      {supportsQuery ? (
-        <form
-          className="page-query-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setAppliedQuery(draftQuery.trim());
-            setCurrentPage(1);
-          }}
+  const sortChipRow = sortOptions?.length ? (
+    <div className="filter-chip-group">
+      {sortOptions.map((option) => (
+        <button
+          className={`filter-chip ${sortValue === option.value ? "is-active" : ""}`}
+          key={option.value}
+          onClick={() => setSortValue(option.value)}
+          type="button"
         >
-          <input
-            className="page-query-input"
-            onChange={(event) => setDraftQuery(event.target.value)}
-            placeholder={queryPlaceholder}
-            value={draftQuery}
-          />
-          <button className="secondary-button" type="submit">
-            Apply
-          </button>
-        </form>
-      ) : null}
+          {option.label}
+        </button>
+      ))}
     </div>
   ) : null;
 
+  const queryRow = supportsQuery ? (
+    <div className="catalog-query-row">
+      <label className="field catalog-query-field">
+        <span>Filter</span>
+        <input
+          className="page-query-input"
+          onChange={(event) => setDraftQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              flushQueryNow();
+            }
+          }}
+          placeholder={queryPlaceholder}
+          value={draftQuery}
+        />
+      </label>
+      <p className="catalog-query-hint">Filters apply as you type. Press Enter to search immediately.</p>
+    </div>
+  ) : null;
+
+  const generatedToolbar =
+    sortOptions?.length || supportsQuery ? (
+      <div className="search-results-toolbar catalog-toolbar-inner">
+        {sortChipRow || <div />}
+        {queryRow}
+      </div>
+    ) : null;
+
+  const combinedToolbar = (
+    <>
+      {toolbar ? <div className="catalog-toolbar-inner">{toolbar}</div> : null}
+      {generatedToolbar}
+    </>
+  );
+
+  const hasToolbarContent = Boolean(toolbar || generatedToolbar);
+  const showStickyToolbar = Boolean(stickyToolbar && hasToolbarContent);
+
+  const shellClass = ["page-shell", themeClass].filter(Boolean).join(" ");
+
   return (
-    <div className="page-shell">
+    <div className={shellClass}>
       <SiteHeader activeKey={activeKey} />
+
       <main className="inner-page-shell">
+        {showStickyToolbar ? (
+          <div className="catalog-sticky-toolbar-wrap">{combinedToolbar}</div>
+        ) : null}
+
         <section className="page-intro">
-          <p className="eyebrow">{activeKey}</p>
+          <p className="eyebrow">{activeKey || "Discover"}</p>
           <h1>{title}</h1>
           <p>{subtitle}</p>
-          <span className="page-status-pill">{usingFallback ? "Fallback data" : status}</span>
+          <span
+            className={`data-source-pill ${usingFallback ? "is-demo" : "is-live"}`}
+            title={usingFallback ? "The API is offline or unreachable; showing bundled demo titles." : undefined}
+          >
+            {usingFallback ? "Demo catalog" : "Live catalog"}
+          </span>
         </section>
 
+        {laneNotice ? (
+          <aside className="lane-notice-band" role="note">
+            <p>{laneNotice}</p>
+          </aside>
+        ) : null}
+
         <section className="page-layout-with-sidebar">
-          <section className="page-grid-panel">
-            {toolbar ? <div className="results-toolbar">{toolbar}</div> : null}
-            {generatedToolbar ? <div className="results-toolbar">{generatedToolbar}</div> : null}
+          <section
+            className={`page-grid-panel catalog-main-panel ${isFetching && firstLoadDone ? "is-syncing" : ""}`}
+          >
+            {!showStickyToolbar && hasToolbarContent ? (
+              <div className="catalog-toolbar-frost">{combinedToolbar}</div>
+            ) : null}
 
             <div className="page-grid-head">
               <span className="page-count">
@@ -163,15 +253,24 @@ export function CatalogGridPage({
               ) : null}
             </div>
 
-            <div className="catalog-grid catalog-grid-page">
-              {paginatedItems.length ? (
-                paginatedItems.map((item) => (
-                  <MediaCardLink item={item} key={`${item.content_type}-${item.slug}`} />
-                ))
-              ) : (
-                <p className="empty-state">No titles are available here yet.</p>
-              )}
-            </div>
+            {!firstLoadDone ? (
+              <CatalogSkeletonGrid />
+            ) : (
+              <div className="catalog-grid catalog-grid-page">
+                {paginatedItems.length ? (
+                  paginatedItems.map((item) => (
+                    <MediaCardLink item={item} key={`${item.content_type}-${item.slug}`} />
+                  ))
+                ) : (
+                  <div className="empty-state-block">
+                    <p className="empty-state">No titles match this view yet.</p>
+                    <Link className="secondary-button" href="/movies">
+                      Browse movies
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
 
             {totalPages > 1 ? (
               <div className="pagination-row">

@@ -254,6 +254,12 @@ create table if not exists public.audit_logs (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.platform_settings (
+  id smallint primary key default 1 check (id = 1),
+  settings jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.homepage_sections (
   id uuid primary key default gen_random_uuid(),
   title text not null,

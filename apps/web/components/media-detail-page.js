@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { fetchCatalogJson, getFallbackDetail, WEB_STORAGE_KEY } from "../lib/catalog-data";
+import { fetchCatalogJson, getFallbackDetail } from "../lib/catalog-data";
+import { fetchSiteConfig, FALLBACK_SITE_CONFIG } from "../lib/site-config";
+import { ingestTelegramFromCurrentUrl } from "../lib/telegram-session";
 import { SiteHeader } from "./site-header";
 
 function formatBytes(bytes) {
@@ -18,45 +20,46 @@ function formatBytes(bytes) {
   return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
-function extractTelegramContext() {
-  if (typeof window === "undefined") {
-    return {
-      userId: "",
-      telegramUsername: "",
-      telegramLinked: false,
-      pointsBalance: 0,
-    };
-  }
+function formatCountdown(isoDate) {
+  if (!isoDate) return null;
+  const target = new Date(isoDate).getTime();
+  if (Number.isNaN(target)) return null;
+  const ms = Math.max(0, target - Date.now());
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
-  const params = new URLSearchParams(window.location.search);
-  const queryUserId = params.get("user_id")?.trim() || "";
-  const queryTelegramUsername = params.get("telegram_username")?.trim() || "";
-  const queryPoints = Number(params.get("points"));
+function UnlockStepper({ selectedFile, activeSession }) {
+  const step1Done = Boolean(selectedFile);
+  const step2Done = Boolean(activeSession);
+  const step3Ready = Boolean(activeSession?.telegram_deep_link);
 
-  try {
-    const raw = window.localStorage.getItem(WEB_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return {
-      userId: queryUserId || parsed.userId || "",
-      telegramUsername: queryTelegramUsername || parsed.telegramUsername || "",
-      telegramLinked: Boolean(queryUserId || queryTelegramUsername || parsed.telegramLinked),
-      pointsBalance: Number.isFinite(queryPoints)
-        ? Math.max(0, queryPoints)
-        : Math.max(0, parsed.pointsBalance || 0),
-    };
-  } catch {
-    return {
-      userId: queryUserId,
-      telegramUsername: queryTelegramUsername,
-      telegramLinked: Boolean(queryUserId || queryTelegramUsername),
-      pointsBalance: Number.isFinite(queryPoints) ? Math.max(0, queryPoints) : 0,
-    };
-  }
+  return (
+    <ol className="unlock-stepper" aria-label="Download progress">
+      <li className={`unlock-step ${step1Done ? "is-done" : "is-active"}`}>
+        <span className="unlock-step-index">1</span>
+        <span className="unlock-step-label">Choose file</span>
+      </li>
+      <li
+        className={`unlock-step ${step2Done ? "is-done" : step1Done ? "is-active" : "is-pending"}`}
+      >
+        <span className="unlock-step-index">2</span>
+        <span className="unlock-step-label">Get link</span>
+      </li>
+      <li
+        className={`unlock-step ${step3Ready ? "is-done" : step2Done ? "is-active" : "is-pending"}`}
+      >
+        <span className="unlock-step-index">3</span>
+        <span className="unlock-step-label">Telegram</span>
+      </li>
+    </ol>
+  );
 }
 
 export function MediaDetailPage({ activeKey, contentType, slug }) {
   const [item, setItem] = useState(getFallbackDetail(contentType, slug));
-  const [status, setStatus] = useState("Loading title details.");
   const [usingFallback, setUsingFallback] = useState(Boolean(getFallbackDetail(contentType, slug)));
   const [selectedFileId, setSelectedFileId] = useState(null);
   const [sessionBusy, setSessionBusy] = useState(false);
@@ -65,10 +68,13 @@ export function MediaDetailPage({ activeKey, contentType, slug }) {
   const [activeSession, setActiveSession] = useState(null);
   const [telegramContext, setTelegramContext] = useState({
     userId: "",
+    telegramUserId: "",
     telegramUsername: "",
     telegramLinked: false,
-    pointsBalance: 0,
   });
+  const [miniBarVisible, setMiniBarVisible] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [siteConfig, setSiteConfig] = useState(FALLBACK_SITE_CONFIG);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,14 +93,12 @@ export function MediaDetailPage({ activeKey, contentType, slug }) {
         setItem(response.data || null);
         setSelectedFileId(response.data?.files?.[0]?.id || null);
         setUsingFallback(false);
-        setStatus("Live title loaded.");
       } catch {
         if (cancelled) return;
         const fallbackItem = getFallbackDetail(contentType, slug);
         setItem(fallbackItem);
         setSelectedFileId(fallbackItem?.files?.[0]?.id || null);
         setUsingFallback(true);
-        setStatus("Fallback title loaded.");
       }
     }
 
@@ -105,50 +109,78 @@ export function MediaDetailPage({ activeKey, contentType, slug }) {
   }, [contentType, slug]);
 
   useEffect(() => {
-    setTelegramContext(extractTelegramContext());
+    let cancelled = false;
+    (async () => {
+      const cfg = await fetchSiteConfig();
+      if (!cancelled) setSiteConfig(cfg);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    setTelegramContext(ingestTelegramFromCurrentUrl());
+  }, []);
+
+  useEffect(() => {
+    const onScroll = () => {
+      setMiniBarVisible(window.scrollY > 320);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!activeSession?.expires_at) return undefined;
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [activeSession?.expires_at]);
 
   const selectedFile = item?.files?.find((file) => file.id === selectedFileId) || item?.files?.[0] || null;
 
-  async function createSession(consumePoints) {
+  const adSeconds = useMemo(() => {
+    const n = Number(siteConfig.rewarded_ad_duration_seconds);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 5;
+  }, [siteConfig.rewarded_ad_duration_seconds]);
+
+  const countdownLabel = useMemo(
+    () => formatCountdown(activeSession?.expires_at),
+    [activeSession?.expires_at, tick]
+  );
+
+  const apiUserId = telegramContext.userId || telegramContext.telegramUserId;
+
+  async function createDownloadSession() {
     if (!selectedFile) return;
 
-    if (!telegramContext.telegramLinked || !telegramContext.userId) {
+    if (!telegramContext.telegramLinked || !apiUserId) {
       setSessionTone("warning");
-      setSessionFeedback("Telegram details are needed before this file can be unlocked.");
+      setSessionFeedback(
+        "Open this page from your Telegram bot or channel link so we can attach your account, then try again."
+      );
       return;
     }
 
     setSessionBusy(true);
     setSessionTone("neutral");
-    setSessionFeedback(consumePoints ? "Using points to unlock this file..." : "Starting unlock session...");
+    setSessionFeedback("Creating your Telegram download link…");
 
     try {
       if (usingFallback) {
         const nextSession = {
           download_session_id: "demo-session",
           session_token: "demo-token",
-          ad_required: !consumePoints,
-          points_cost: selectedFile.points_cost,
-          points_spent: consumePoints ? selectedFile.points_cost : 0,
-          telegram_deep_link: "https://t.me/demo_bot?start=demo-token",
+          ad_required: true,
+          telegram_deep_link: siteConfig.telegram_demo_deep_link || FALLBACK_SITE_CONFIG.telegram_demo_deep_link,
           expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-          status: consumePoints ? "created" : "ad_pending",
+          status: "ad_pending",
           content_file_id: selectedFile.id,
         };
         setActiveSession(nextSession);
-        setTelegramContext((current) => ({
-          ...current,
-          pointsBalance: consumePoints
-            ? Math.max(0, current.pointsBalance - selectedFile.points_cost)
-            : current.pointsBalance,
-        }));
         setSessionTone("success");
-        setSessionFeedback(
-          consumePoints
-            ? "Points spent. Telegram can open the file immediately."
-            : "Session created. Continue the unlock flow in Telegram."
-        );
+        setSessionFeedback(siteConfig.download_help_text || FALLBACK_SITE_CONFIG.download_help_text);
         setSessionBusy(false);
         return;
       }
@@ -157,74 +189,26 @@ export function MediaDetailPage({ activeKey, contentType, slug }) {
         method: "POST",
         body: JSON.stringify({
           content_file_id: selectedFile.id,
-          consume_points: consumePoints,
-          user_id: telegramContext.userId,
+          consume_points: false,
+          user_id: apiUserId,
         }),
       });
 
       setActiveSession(response.data);
-      if (consumePoints && response.data.points_spent) {
-        setTelegramContext((current) => ({
-          ...current,
-          pointsBalance: Math.max(0, current.pointsBalance - response.data.points_spent),
-        }));
-      }
       setSessionTone("success");
-      setSessionFeedback(
-        response.data.ad_required
-          ? "Session created. Complete the rewarded step, then continue in Telegram."
-          : "Session unlocked. Telegram can open the file immediately."
-      );
+      setSessionFeedback(siteConfig.download_help_text || FALLBACK_SITE_CONFIG.download_help_text);
     } catch (error) {
       setSessionTone("danger");
-      setSessionFeedback(`Could not create a session. ${error.message}`);
+      setSessionFeedback(`Could not create a download session. ${error.message}`);
     } finally {
       setSessionBusy(false);
     }
   }
 
-  async function usePointsForSession() {
-    if (!activeSession) return;
-
-    setSessionBusy(true);
-    setSessionTone("neutral");
-    setSessionFeedback("Spending points to bypass the ad step...");
-
-    try {
-      if (usingFallback) {
-        setActiveSession((current) => ({
-          ...current,
-          ad_required: false,
-          status: "created",
-          points_spent: current.points_cost,
-        }));
-        setTelegramContext((current) => ({
-          ...current,
-          pointsBalance: Math.max(0, current.pointsBalance - activeSession.points_cost),
-        }));
-        setSessionTone("success");
-        setSessionFeedback("Points applied. Telegram can now open the file immediately.");
-        setSessionBusy(false);
-        return;
-      }
-
-      const response = await fetchCatalogJson(
-        `/download-sessions/${activeSession.download_session_id}/use-points?user_id=${encodeURIComponent(telegramContext.userId)}`,
-        { method: "POST" }
-      );
-      setActiveSession(response.data);
-      setTelegramContext((current) => ({
-        ...current,
-        pointsBalance: Math.max(0, current.pointsBalance - response.data.points_spent),
-      }));
-      setSessionTone("success");
-      setSessionFeedback("Points applied. The unlock step is complete.");
-    } catch (error) {
-      setSessionTone("danger");
-      setSessionFeedback(`Could not spend points for this session. ${error.message}`);
-    } finally {
-      setSessionBusy(false);
-    }
+  function copyTelegramLink() {
+    const url = activeSession?.telegram_deep_link;
+    if (!url || typeof navigator === "undefined" || !navigator.clipboard) return;
+    navigator.clipboard.writeText(url).catch(() => {});
   }
 
   if (!item) {
@@ -236,15 +220,38 @@ export function MediaDetailPage({ activeKey, contentType, slug }) {
             <p className="eyebrow">{contentType}</p>
             <h1>Title not found</h1>
             <p>We could not find this title yet.</p>
+            <Link className="primary-button" href="/movies">
+              Browse movies
+            </Link>
           </section>
         </main>
       </div>
     );
   }
 
+  const telegramLinkReady = Boolean(activeSession?.telegram_deep_link);
+
   return (
-    <div className="page-shell">
+    <div className="page-shell page-shell-detail">
       <SiteHeader activeKey={activeKey} />
+
+      <div
+        aria-hidden={!miniBarVisible}
+        className={`detail-sticky-mini ${miniBarVisible ? "is-visible" : ""}`}
+      >
+        <div className="detail-sticky-mini-inner">
+          <p className="detail-sticky-mini-title">{item.title}</p>
+          <a
+            className={`primary-button detail-sticky-mini-cta ${telegramLinkReady ? "" : "disabled-link"}`}
+            href={activeSession?.telegram_deep_link || "#"}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Open Telegram
+          </a>
+        </div>
+      </div>
+
       <main className="inner-page-shell">
         <section
           className="detail-hero-panel"
@@ -262,134 +269,157 @@ export function MediaDetailPage({ activeKey, contentType, slug }) {
               <p className="detail-hero-meta">
                 {[item.release_year, item.language?.toUpperCase()].filter(Boolean).join(" | ") || "Published title"}
               </p>
-              <p>{item.synopsis || "Details for this title will appear here."}</p>
+              <p className="detail-hero-synopsis clamp-lines-4">{item.synopsis || "Details for this title will appear here."}</p>
               <div className="detail-hero-actions">
-                <Link className="primary-button" href="/">
-                  Back home
+                <Link className="secondary-button" href="/">
+                  Home
                 </Link>
-                <span className="page-status-pill">{usingFallback ? "Fallback data" : status}</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="page-grid-panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Files</p>
-              <h3>Available versions</h3>
-            </div>
-          </div>
-          <div className="quality-list">
-            {item.files?.length ? (
-              item.files.map((file) => (
-                <button
-                  className={`quality-button ${selectedFileId === file.id ? "is-active" : ""}`}
-                  key={file.id}
-                  onClick={() => {
-                    setSelectedFileId(file.id);
-                    setActiveSession(null);
-                    setSessionFeedback("");
-                    setSessionTone("neutral");
-                  }}
-                  type="button"
+                <span
+                  className={`data-source-pill ${usingFallback ? "is-demo" : "is-live"}`}
+                  title={usingFallback ? "Demo payload while the API is unavailable." : undefined}
                 >
-                  <div className="quality-main">
-                    <strong>{file.label || `${file.quality || "File"} ${file.format || ""}`.trim()}</strong>
-                    <span>{file.requires_ad ? "Rewarded unlock required" : "Direct unlock available"}</span>
-                  </div>
-                  <div className="quality-meta">
-                    <span>{file.quality || "Standard"}</span>
-                    <span>
-                      {formatBytes(file.file_size_bytes)} | {file.points_cost} pts
-                    </span>
-                  </div>
-                </button>
-              ))
-            ) : (
-              <p className="empty-state">No downloadable files have been published for this title yet.</p>
-            )}
-          </div>
-        </section>
-
-        <section className="page-grid-panel">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Unlock</p>
-              <h3>Telegram handoff</h3>
-            </div>
-            <span className="page-status-pill">
-              {telegramContext.telegramLinked
-                ? telegramContext.telegramUsername
-                  ? `@${telegramContext.telegramUsername}`
-                  : "Telegram linked"
-                : "Guest visitor"}
-            </span>
-          </div>
-
-          <div className="session-card">
-            <p>
-              {!selectedFile
-                ? "No downloadable file is available for this title yet."
-                : !activeSession
-                  ? `${selectedFile.label || selectedFile.quality || "Selected file"} costs ${selectedFile.points_cost} points to bypass ads.`
-                  : activeSession.ad_required
-                    ? "Session created. Complete the rewarded step, then continue in Telegram."
-                    : "Session unlocked. Telegram can open the file immediately."}
-            </p>
-
-            {sessionFeedback ? (
-              <div className={`feedback-card is-${sessionTone}`}>
-                <h4>Unlock feedback</h4>
-                <p>{sessionFeedback}</p>
+                  {usingFallback ? "Demo title" : "Live title"}
+                </span>
               </div>
-            ) : null}
-
-            <div className="detail-unlock-meta">
-              <span className="page-status-pill">
-                {telegramContext.telegramLinked ? `${telegramContext.pointsBalance} pts` : "No points yet"}
-              </span>
-              {activeSession?.status ? (
-                <span className="page-status-pill">Session: {activeSession.status}</span>
-              ) : null}
-            </div>
-
-            <div className="detail-hero-actions">
-              <button
-                className="primary-button"
-                disabled={!selectedFile || sessionBusy || Boolean(activeSession)}
-                onClick={() => createSession(false)}
-                type="button"
-              >
-                {sessionBusy && !activeSession ? "Starting..." : "Start unlock"}
-              </button>
-
-              <button
-                className="secondary-button"
-                disabled={!selectedFile || sessionBusy || !telegramContext.telegramLinked}
-                onClick={() => (activeSession ? usePointsForSession() : createSession(true))}
-                type="button"
-              >
-                {sessionBusy
-                  ? "Working..."
-                  : activeSession
-                    ? activeSession.ad_required
-                      ? "Bypass with points"
-                      : "Points used"
-                    : "Skip with points"}
-              </button>
-
-              <a
-                className={`primary-button ${activeSession?.telegram_deep_link ? "" : "disabled-link"}`}
-                href={activeSession?.telegram_deep_link || "#"}
-                rel="noreferrer"
-                target="_blank"
-              >
-                Open Telegram
-              </a>
             </div>
           </div>
         </section>
+
+        <div className="detail-page-grid">
+          <div className="detail-main-column">
+            <section className="page-grid-panel detail-about-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">About</p>
+                  <h3>Synopsis</h3>
+                </div>
+              </div>
+              <p className="detail-synopsis-body">{item.synopsis || "Synopsis will appear when the editorial team publishes it."}</p>
+              <p className="detail-flow-note">
+                Downloads run in Telegram: you request a link here, open the bot, watch a brief sponsored clip (~
+                {adSeconds} seconds), then the bot sends the file in chat.
+              </p>
+            </section>
+          </div>
+
+          <aside className="detail-rail-column">
+            <section className="page-grid-panel detail-rail-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Quality</p>
+                  <h3>Pick a file</h3>
+                </div>
+              </div>
+              <div className="quality-list">
+                {item.files?.length ? (
+                  item.files.map((file) => (
+                    <button
+                      className={`quality-button ${selectedFileId === file.id ? "is-active" : ""}`}
+                      key={file.id}
+                      onClick={() => {
+                        setSelectedFileId(file.id);
+                        setActiveSession(null);
+                        setSessionFeedback("");
+                        setSessionTone("neutral");
+                      }}
+                      type="button"
+                    >
+                      <div className="quality-main">
+                        <strong>{file.label || `${file.quality || "File"} ${file.format || ""}`.trim()}</strong>
+                        <span>Delivered in Telegram after a short ad (~{adSeconds}s)</span>
+                      </div>
+                      <div className="quality-meta">
+                        <span>{file.quality || "Standard"}</span>
+                        <span>{formatBytes(file.file_size_bytes)}</span>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <p className="empty-state">No downloadable files have been published for this title yet.</p>
+                )}
+              </div>
+            </section>
+
+            <section className="page-grid-panel detail-rail-panel">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Download</p>
+                  <h3>Telegram</h3>
+                </div>
+                <span className="data-source-pill is-muted">
+                  {telegramContext.telegramLinked
+                    ? telegramContext.telegramUsername
+                      ? `@${telegramContext.telegramUsername}`
+                      : apiUserId
+                        ? `Visitor ${apiUserId}`
+                        : "Linked"
+                    : "Not linked"}
+                </span>
+              </div>
+
+              <UnlockStepper activeSession={activeSession} selectedFile={selectedFile} />
+
+              <div className="session-card detail-session-card">
+                <p className="detail-session-lede">
+                  {!selectedFile
+                    ? "No downloadable file is available for this title yet."
+                    : !activeSession
+                      ? `Choose a version, then create your personal Telegram link. The ad plays inside Telegram before delivery (about ${adSeconds}s).`
+                      : "Use Open Telegram below. Complete the short ad in Telegram, then the bot sends the file."}
+                </p>
+
+                {activeSession?.expires_at && countdownLabel ? (
+                  <p className="session-countdown" role="status">
+                    Link expires in <strong>{countdownLabel}</strong>
+                  </p>
+                ) : null}
+
+                {sessionFeedback ? (
+                  <div className={`feedback-card is-${sessionTone}`}>
+                    <h4>Status</h4>
+                    <p>{sessionFeedback}</p>
+                  </div>
+                ) : null}
+
+                <div className="detail-unlock-meta">
+                  {activeSession?.status ? (
+                    <span className="data-source-pill is-muted">State: {activeSession.status}</span>
+                  ) : null}
+                </div>
+
+                <div className="detail-hero-actions detail-unlock-actions">
+                  <button
+                    className="primary-button"
+                    disabled={!selectedFile || sessionBusy || Boolean(activeSession)}
+                    onClick={() => createDownloadSession()}
+                    type="button"
+                  >
+                    {sessionBusy && !activeSession ? "Creating link…" : "Get Telegram link"}
+                  </button>
+
+                  <a
+                    className={`primary-button ${telegramLinkReady ? "" : "disabled-link"}`}
+                    href={activeSession?.telegram_deep_link || "#"}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Open Telegram
+                  </a>
+
+                  {activeSession?.telegram_deep_link ? (
+                    <button className="secondary-button" onClick={copyTelegramLink} type="button">
+                      Copy link
+                    </button>
+                  ) : null}
+                </div>
+
+                {!telegramContext.telegramLinked || !apiUserId ? (
+                  <p className="detail-telegram-hint">{siteConfig.visitor_param_hint || FALLBACK_SITE_CONFIG.visitor_param_hint}</p>
+                ) : null}
+              </div>
+            </section>
+          </aside>
+        </div>
       </main>
     </div>
   );

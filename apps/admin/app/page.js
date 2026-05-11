@@ -90,6 +90,15 @@ const initialPointsForm = {
   reason: "",
 };
 
+const initialPlatformSettingsForm = {
+  telegram_bot_username: "",
+  public_site_url: "",
+  rewarded_ad_duration_seconds: 5,
+  download_help_text: "",
+  visitor_param_hint: "",
+  telegram_demo_deep_link: "",
+};
+
 const initialState = {
   apiBaseUrl: "http://localhost:8000/api/v1",
   loginIdentifier: "",
@@ -134,6 +143,10 @@ const initialState = {
   fileForm: initialFileForm,
   homepageSectionForm: initialHomepageSectionForm,
   pointsForm: initialPointsForm,
+  platformSettingsForm: initialPlatformSettingsForm,
+  platformSettingsFeedback: "",
+  platformSettingsFeedbackTone: "neutral",
+  platformSettingsBusy: false,
   movieEditId: null,
   seriesEditId: null,
   audioEditId: null,
@@ -192,7 +205,7 @@ function dashboardSubtitle(activeView) {
     case "users":
       return "Moderate users, review admins, and adjust reward balances.";
     case "settings":
-      return "Review connection state and current operator access details.";
+      return "Public web copy, Telegram delivery hints, and demo deep links.";
     case "profile":
       return "Your current admin identity and permission footprint.";
     default:
@@ -382,6 +395,54 @@ export default function Page() {
     state.fallback,
     state.isAuthenticated,
   ]);
+
+  useEffect(() => {
+    if (state.activeView !== "settings" || !state.isAuthenticated || state.fallback) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function load() {
+      setState((c) => ({ ...c, platformSettingsBusy: true, platformSettingsFeedback: "" }));
+      try {
+        const res = await fetchJson(
+          state.apiBaseUrl.trim(),
+          "/admin/platform-settings",
+          {},
+          true,
+          { adminToken: state.adminToken.trim(), adminUserId: state.adminUserId.trim() }
+        );
+        if (cancelled) return;
+        const d = res.data || {};
+        setState((c) => ({
+          ...c,
+          platformSettingsBusy: false,
+          platformSettingsForm: {
+            telegram_bot_username: String(d.telegram_bot_username ?? ""),
+            public_site_url: String(d.public_site_url ?? ""),
+            rewarded_ad_duration_seconds: Number(d.rewarded_ad_duration_seconds) || 5,
+            download_help_text: String(d.download_help_text ?? ""),
+            visitor_param_hint: String(d.visitor_param_hint ?? ""),
+            telegram_demo_deep_link: String(d.telegram_demo_deep_link ?? ""),
+          },
+        }));
+      } catch (error) {
+        if (cancelled) return;
+        setState((c) => ({
+          ...c,
+          platformSettingsBusy: false,
+          platformSettingsFeedback: error.message,
+          platformSettingsFeedbackTone: "danger",
+        }));
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [state.activeView, state.isAuthenticated, state.fallback, state.apiBaseUrl, state.adminToken, state.adminUserId]);
 
   function setStatus(statusMessage, extras = {}) {
     setState((current) => ({
@@ -610,6 +671,52 @@ export default function Page() {
       setStatus(`Refresh failed. ${error.message}`);
     } finally {
       setState((current) => ({ ...current, isLoading: false }));
+    }
+  }
+
+  async function savePlatformSettings(event) {
+    event.preventDefault();
+    if (state.fallback) return;
+
+    setState((c) => ({ ...c, platformSettingsBusy: true, platformSettingsFeedback: "" }));
+    try {
+      const body = {
+        telegram_bot_username: state.platformSettingsForm.telegram_bot_username,
+        public_site_url: state.platformSettingsForm.public_site_url,
+        rewarded_ad_duration_seconds: Number(state.platformSettingsForm.rewarded_ad_duration_seconds) || 5,
+        download_help_text: state.platformSettingsForm.download_help_text,
+        visitor_param_hint: state.platformSettingsForm.visitor_param_hint,
+        telegram_demo_deep_link: state.platformSettingsForm.telegram_demo_deep_link,
+      };
+      const response = await fetchJson(
+        state.apiBaseUrl.trim(),
+        "/admin/platform-settings",
+        { method: "PATCH", body: JSON.stringify(body) },
+        true,
+        auth
+      );
+      const d = response.data || {};
+      setState((c) => ({
+        ...c,
+        platformSettingsBusy: false,
+        platformSettingsFeedback: "Platform settings saved.",
+        platformSettingsFeedbackTone: "success",
+        platformSettingsForm: {
+          telegram_bot_username: String(d.telegram_bot_username ?? ""),
+          public_site_url: String(d.public_site_url ?? ""),
+          rewarded_ad_duration_seconds: Number(d.rewarded_ad_duration_seconds) || 5,
+          download_help_text: String(d.download_help_text ?? ""),
+          visitor_param_hint: String(d.visitor_param_hint ?? ""),
+          telegram_demo_deep_link: String(d.telegram_demo_deep_link ?? ""),
+        },
+      }));
+    } catch (error) {
+      setState((c) => ({
+        ...c,
+        platformSettingsBusy: false,
+        platformSettingsFeedback: error.message,
+        platformSettingsFeedbackTone: "danger",
+      }));
     }
   }
 
@@ -2066,6 +2173,139 @@ export default function Page() {
   function renderSettingsView() {
     return (
       <section className="dashboard-grid">
+        <section className="panel wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Public web</p>
+              <h2>Site &amp; Telegram delivery copy</h2>
+            </div>
+          </div>
+          {state.fallback ? (
+            <p className="status-message">
+              Platform settings are only available when connected to the live API. Sign in without fallback mode to edit
+              these fields.
+            </p>
+          ) : (
+            <form className="editor-form" onSubmit={savePlatformSettings}>
+              {state.platformSettingsFeedback ? (
+                <div className={`feedback-card is-${state.platformSettingsFeedbackTone}`}>
+                  <p>{state.platformSettingsFeedback}</p>
+                </div>
+              ) : null}
+              <div className="form-grid">
+                <label className="field">
+                  <span>Telegram bot username (no @)</span>
+                  <input
+                    disabled={state.platformSettingsBusy}
+                    value={state.platformSettingsForm.telegram_bot_username}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        platformSettingsForm: {
+                          ...current.platformSettingsForm,
+                          telegram_bot_username: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Public site URL</span>
+                  <input
+                    disabled={state.platformSettingsBusy}
+                    placeholder="https://example.com"
+                    value={state.platformSettingsForm.public_site_url}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        platformSettingsForm: {
+                          ...current.platformSettingsForm,
+                          public_site_url: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Rewarded ad duration (seconds)</span>
+                  <input
+                    disabled={state.platformSettingsBusy}
+                    min={1}
+                    max={600}
+                    type="number"
+                    value={state.platformSettingsForm.rewarded_ad_duration_seconds}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        platformSettingsForm: {
+                          ...current.platformSettingsForm,
+                          rewarded_ad_duration_seconds: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Download help text (shown after link is created)</span>
+                  <textarea
+                    disabled={state.platformSettingsBusy}
+                    rows={3}
+                    value={state.platformSettingsForm.download_help_text}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        platformSettingsForm: {
+                          ...current.platformSettingsForm,
+                          download_help_text: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Visitor param hint (when Telegram is not linked)</span>
+                  <textarea
+                    disabled={state.platformSettingsBusy}
+                    rows={3}
+                    value={state.platformSettingsForm.visitor_param_hint}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        platformSettingsForm: {
+                          ...current.platformSettingsForm,
+                          visitor_param_hint: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Demo Telegram deep link (web demo mode only)</span>
+                  <input
+                    disabled={state.platformSettingsBusy}
+                    placeholder="https://t.me/your_bot?start=..."
+                    value={state.platformSettingsForm.telegram_demo_deep_link}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        platformSettingsForm: {
+                          ...current.platformSettingsForm,
+                          telegram_demo_deep_link: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+              <div className="action-row">
+                <button className="primary-button" disabled={state.platformSettingsBusy} type="submit">
+                  {state.platformSettingsBusy ? "Saving…" : "Save platform settings"}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+
         <section className="panel">
           <div className="panel-head">
             <div>

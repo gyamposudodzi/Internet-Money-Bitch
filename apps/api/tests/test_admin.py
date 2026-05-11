@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.routes.admin import get_admin_repository
 from app.main import app
+from app.repositories.platform_settings import get_platform_settings_repository
 
 
 class StubAdminRepository:
@@ -17,6 +18,17 @@ class StubAdminRepository:
                 can_manage_content=True,
                 can_manage_users=True,
                 can_manage_rewards=True,
+                can_view_analytics=True,
+            )
+        if user_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa":
+            return SimpleNamespace(
+                user_id=user_id,
+                telegram_user_id=900000004,
+                telegram_username="analytics_only",
+                role="analyst",
+                can_manage_content=False,
+                can_manage_users=False,
+                can_manage_rewards=False,
                 can_view_analytics=True,
             )
         return SimpleNamespace(
@@ -363,8 +375,38 @@ class StubAdminRepository:
         }
 
 
+class StubPlatformSettingsRepository:
+    def __init__(self) -> None:
+        self._data: dict = {
+            "telegram_bot_username": "imb_delivery_bot",
+            "public_site_url": "https://example.com",
+            "rewarded_ad_duration_seconds": 8,
+            "download_help_text": "Watch the ad in Telegram, then receive the file.",
+            "visitor_param_hint": "Open from Telegram with user_id in the URL.",
+            "telegram_demo_deep_link": "https://t.me/demo_bot?start=demo",
+        }
+
+    async def get_settings(self):
+        from app.repositories.platform_settings import merge_platform_settings
+
+        return merge_platform_settings(self._data)
+
+    async def update_settings(self, patch: dict, actor_user_id: str):
+        from app.repositories.platform_settings import merge_platform_settings
+
+        for key, value in patch.items():
+            if value is not None:
+                self._data[key] = value
+        self._data = merge_platform_settings(self._data)
+        return self._data
+
+
 async def override_admin_repository():
     yield StubAdminRepository()
+
+
+async def override_platform_settings_repository():
+    yield StubPlatformSettingsRepository()
 
 
 def _headers(user_id: str):
@@ -776,4 +818,54 @@ def test_admin_can_create_homepage_section(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["data"]["slug"] == "kdrama"
+    app.dependency_overrides.clear()
+
+
+def test_admin_platform_settings_get(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    app.dependency_overrides[get_platform_settings_repository] = override_platform_settings_repository
+    client = TestClient(app)
+
+    response = client.get("/api/v1/admin/platform-settings", headers=_headers("11111111-1111-1111-1111-111111111111"))
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["telegram_bot_username"] == "imb_delivery_bot"
+    assert body["rewarded_ad_duration_seconds"] == 8
+    app.dependency_overrides.clear()
+
+
+def test_admin_platform_settings_patch(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    app.dependency_overrides[get_platform_settings_repository] = override_platform_settings_repository
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/admin/platform-settings",
+        headers=_headers("11111111-1111-1111-1111-111111111111"),
+        json={"rewarded_ad_duration_seconds": 12, "telegram_bot_username": "new_bot"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["rewarded_ad_duration_seconds"] == 12
+    assert body["telegram_bot_username"] == "new_bot"
+    app.dependency_overrides.clear()
+
+
+def test_admin_platform_settings_denies_without_content_scope(monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.admin_api_token", "test-admin-token")
+    app.dependency_overrides[get_admin_repository] = override_admin_repository
+    app.dependency_overrides[get_platform_settings_repository] = override_platform_settings_repository
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/v1/admin/platform-settings",
+        headers=_headers("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "admin_permission_denied"
     app.dependency_overrides.clear()

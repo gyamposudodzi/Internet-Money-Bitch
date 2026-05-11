@@ -1,3 +1,5 @@
+"use client";
+
 import { CatalogGridPage } from "../../components/catalog-grid-page";
 import { listFallbackSeries } from "../../lib/catalog-data";
 

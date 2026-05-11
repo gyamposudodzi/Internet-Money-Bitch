@@ -8,6 +8,7 @@ const navItems = [
   { href: "/anime", label: "Anime", key: "anime" },
   { href: "/cartoons", label: "Cartoons", key: "cartoons" },
   { href: "/audio", label: "Audio", key: "audio" },
+  { href: "/search", label: "Search", key: "search" },
 ];
 
 export function SiteHeader({ activeKey }) {
@@ -24,19 +25,19 @@ export function SiteHeader({ activeKey }) {
           </div>
         </div>
 
-        <nav className="navbar-links" aria-label="Primary">
-          {navItems.map((item) => (
-            <Link
-              className={`navbar-link ${activeKey === item.key ? "is-active" : ""}`}
-              href={item.href}
-              key={item.key}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="navbar-spacer" />
+        <div className="navbar-links-scroll">
+          <nav className="navbar-links" aria-label="Primary">
+            {navItems.map((item) => (
+              <Link
+                className={`navbar-link ${activeKey === item.key ? "is-active" : ""}`}
+                href={item.href}
+                key={item.key}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
       </div>
     </header>
   );

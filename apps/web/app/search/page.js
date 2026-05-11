@@ -233,7 +233,8 @@ export default function SearchPage() {
 
   return (
     <CatalogGridPage
-      activeKey=""
+      activeKey="search"
+      stickyToolbar
       title={query ? `Search results for "${query}"` : "Search"}
       subtitle={
         query

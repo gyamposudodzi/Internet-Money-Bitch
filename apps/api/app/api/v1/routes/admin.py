@@ -7,6 +7,7 @@ from app.core.errors import AppError
 from app.core.security import authenticate_admin_login, require_admin_user_header
 from app.repositories.admin import AdminRepository
 from app.repositories.downloads import validate_uuid
+from app.repositories.platform_settings import get_platform_settings_repository, PlatformSettingsRepository
 from app.schemas.admin import (
     AdminAudioCreateRequest,
     AdminAudioUpdateRequest,
@@ -35,6 +36,7 @@ from app.schemas.admin import (
     AdminUserModerationRequest,
     AdminUserSummary,
 )
+from app.schemas.platform_settings import SiteConfigAdminPatch, SiteConfigPublic
 from app.schemas.responses import api_response
 
 router = APIRouter()
@@ -429,3 +431,25 @@ async def update_homepage_section(
         identity.user_id,
     )
     return api_response(data=AdminHomepageSectionSummary.model_validate(section))
+
+
+@router.get("/platform-settings")
+async def get_admin_platform_settings(
+    identity=Depends(get_current_admin_identity),
+    settings_repo: PlatformSettingsRepository = Depends(get_platform_settings_repository),
+):
+    ensure_can_manage_content(identity)
+    data = await settings_repo.get_settings()
+    return api_response(data=SiteConfigPublic.model_validate(data))
+
+
+@router.patch("/platform-settings")
+async def patch_admin_platform_settings(
+    payload: SiteConfigAdminPatch,
+    identity=Depends(get_current_admin_identity),
+    settings_repo: PlatformSettingsRepository = Depends(get_platform_settings_repository),
+):
+    ensure_can_manage_content(identity)
+    patch = payload.model_dump(exclude_none=True)
+    updated = await settings_repo.update_settings(patch, identity.user_id)
+    return api_response(data=SiteConfigPublic.model_validate(updated))

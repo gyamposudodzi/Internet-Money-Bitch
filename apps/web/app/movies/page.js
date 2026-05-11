@@ -1,3 +1,5 @@
+"use client";
+
 import { CatalogGridPage } from "../../components/catalog-grid-page";
 import { listFallbackMovies } from "../../lib/catalog-data";
 

@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.routes.catalog import get_catalog_repository
 from app.main import app
+from app.repositories.platform_settings import get_platform_settings_repository, merge_platform_settings
 
 
 class StubCatalogRepository:
@@ -201,4 +202,29 @@ def test_list_series_accepts_filter_params():
         "page": 2,
         "limit": 8,
     }
+    app.dependency_overrides.clear()
+
+
+def test_site_config_public():
+    class StubSettings:
+        async def get_settings(self):
+            return merge_platform_settings(
+                {
+                    "telegram_bot_username": "catalog_bot",
+                    "rewarded_ad_duration_seconds": 9,
+                }
+            )
+
+    async def override_settings() -> AsyncGenerator[StubSettings, None]:
+        yield StubSettings()
+
+    app.dependency_overrides[get_platform_settings_repository] = override_settings
+    client = TestClient(app)
+
+    response = client.get("/api/v1/site-config")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["telegram_bot_username"] == "catalog_bot"
+    assert data["rewarded_ad_duration_seconds"] == 9
     app.dependency_overrides.clear()
